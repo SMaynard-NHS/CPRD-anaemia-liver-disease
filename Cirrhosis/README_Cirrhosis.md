@@ -15,3 +15,5 @@ or with complications almost entirely occurring only in the presence of cirrhosi
 
 NB Jaundice was not included due to low sensitivity.  
 Fibrosis and sclerosis were not deemed as cirrhosis.
+
+Exclusion terms used were:
