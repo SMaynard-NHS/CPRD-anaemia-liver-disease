@@ -1,4 +1,4 @@
-Diabetes codelist was generated to capture patients with current diagnosis of diabetes, exlcuding gestational diabetes
+Diabetes codelist was generated to capture patients with current diagnosis of diabetes, excluding gestational diabetes
 
 Step 1: Identify terms that capture all QOF codes of interest
   - QOF code lists available from Primary Care Domain (PCD) reference set portal from NHS Digitial (PCD_Refset20240215)
