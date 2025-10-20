@@ -7,6 +7,11 @@ ascit (es/ic)
 chronic hep failure  
 end stage liver disease
 child-pugh
+MELD
+hepatorenal
+hepatic encephalopath
+stage 4 fibrosis
+decompensated liver disease
 
 Terms were extracted from ICD-10, SNOMED codelists and existing publicly available codelists.
 
@@ -17,3 +22,4 @@ NB Jaundice was not included due to low sensitivity.
 Fibrosis and sclerosis were not deemed as cirrhosis.
 
 Exclusion terms used were:
+without cirrhosis|non-cirrhotic|ascites not demonstrated|chylous|no ascites|fetal|foetal|pancreatic|cardiac ascites|varicell|venous|vulval|vaginal|scrotal|retic|genital|perineal|pelvic|ligament|sublingual|lung|retinal|pulmonary|duodenal|stomal|prostate|ovar|oral|mesenteric|small intestine|ulcer|cord|scirrhous|thrombosed|primary biliary|eczema|varices - other|malignant
