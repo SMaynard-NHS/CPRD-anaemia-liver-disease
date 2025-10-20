@@ -21,7 +21,7 @@ NB Jaundice was not included due to low sensitivity.
 Fibrosis and sclerosis were not deemed as cirrhosis.
 
 Exclusion terms used were:
-without cirrhosis|non-cirrhotic|ascites not demonstrated|chylous|no ascites|fetal|foetal|pancreatic|cardiac ascites|varicell|venous|vulval|vaginal|scrotal|retic|genital|perineal|pelvic|ligament|sublingual|lung|retinal|pulmonary|duodenal|stomal|prostate|ovar|oral|mesenteric|small intestine|ulcer|cord|scirrhous|thrombosed|primary biliary|eczema|varices - other|malignant
+without cirrhosis|non-cirrhotic|ascites not demonstrated|chylous|no ascites|fetal|foetal|pancreatic|cardiac ascites |varicell|venous|vulval|vaginal|scrotal|retic|genital|perineal|pelvic|ligament|sublingual|lung|retinal|pulmonary|duodenal|stomal|prostate|ovar|oral|mesenteric|small intestine|ulcer|cord|scirrhous|thrombosed|primary biliary|eczema|varices - other|malignant
 
 For liver transplant the inclusion and exclusion search terms of the python code where updated as follows:
 
