@@ -1,0 +1,90 @@
+# NB This code is using python and requires filepath to be updated relevant to the specific user where EMIS medical dictionary is available
+# The code can be used to search other master codelists but needs to be updated to the format accordingly
+
+import pandas as pd
+
+# Open EMIS medical dictionary
+ED = pd.read_csv(r"C:\Users\UPDATE_USER_FILEPATH", sep = '\t', dtype = {'MedCodeId':str})
+
+#sort by descendingnumber of observations 
+ED = ED.sort_values(['Observations'], ascending = False)
+
+#print the length of the file
+print(len(ED))
+
+#remove any rows that have no description
+ED = ED[~ED['Term'].isna()]
+
+#select relevant columns
+ED = ED[['MedCodeId', 'Observations', 'Term', 'SnomedCTConceptId']]
+
+#add a letter to the medcodeid so excel doesn't corrupt it
+ED['MedCodeId'] = 'a' + ED['MedCodeId']
+
+#look at the first 10 rows
+ED.head(10)
+
+#select rows that contain terms of interest
+cl = ED[ED['Term'].str.contains('end stage liver disease|cirrho|varice|MELD|hepatorenal|Child-Pugh|ascites|chronic hepatic failure|hepatic encephalopath|portal hypertens|stage 4 fibrosis|decompensated liver disease', case = False)] 
+
+#print number of rows
+print(len(cl))
+
+#remove rows that contain innappropriate terms
+cl = cl[~cl['Term'].str.contains('without cirrhosis|non-cirrhotic|ascites not demonstrated|chylous|no ascites|fetal|foetal|pancreatic|cardiac ascites|varicell|venous|vulval|vaginal|scrotal|retic|genital|perineal|pelvic|ligament|sublingual|lung|retinal|pulmonary|duodenal|stomal|prostate|ovar|oral|mesenteric|small intestine|ulcer|cord|scirrhous|thrombosed|primary biliary|eczema|varices - other|malignant', case = False)]
+
+#print number of rows
+print(len(cl))
+
+#look at the first 40 rows
+cl.head(40)
+
+# Export as csv
+cl.to_csv(r"C:\Users\UPDATE_USER_FILEPATH.csv", sep = ',')
+
+# Add columns 'cause_alc' 'cause_non_alc' 'type_unknown'
+
+# Explore use of 'alc'
+cl_alc = cl[cl['Term'].str.contains(r'(?=.*alc)|laennec', case = False, regex=True)] 
+
+#print number of rows
+print(len(cl_alc))
+
+#remove rows that contain innappropriate terms
+cl_alc = cl_alc[~cl_alc['Term'].str.contains(r'non-alcoholic|not due to alcohol', case=False, regex=True)] 
+
+#print number of rows
+print(len(cl_alc))
+
+#look at the first 10 rows
+cl_alc.head(10)
+
+# Explore capture of non-alc and other causes
+cl_nonalc = cl[cl['Term'].str.contains(r'non-alcoholic|not due to alcohol|fatty|hepatitis|biliary|cryptogenic|hypertrophic|cardiac portal|glycogenosis|infectious|portal cirrhosis|pigmentary|cardituberculous|cystic fibrosis|congestive|juvenile portal|indian childhood|postnecrotic|cardiac|sclerosing cholangitis|secondary to cholestasis|drug-induced|zooparasitic|syphilitic', case=False, regex=True)] 
+
+#print number of rows
+print(len(cl_nonalc))
+
+#look at the first 10 rows
+cl_nonalc.head(10)
+
+# Define conditions
+cause_alc = cl['Term'].str.contains(r'(?=.*alc|laennec)', case = False, regex=True) & \
+            ~cl['Term'].str.contains(r'non-alcoholic|not due to alcohol', case=False, regex=True)
+
+cause_non_alc = cl['Term'].str.contains(r'non-alc|not due to alcohol|fatty|hepatitis|biliary|cryptogenic|hypertrophic|cardiac portal|glycogenosis|infectious|portal cirrhosis|pigmentary|cardituberculous|cystic fibrosis|congestive|juvenile portal|indian childhood|postnecrotic|cardiac|sclerosing cholangitis|secondary to cholestasis|drug-induced|zooparasitic|syphilitic', case=False, regex=True)
+
+# Assign categories
+cl['type_alc'] = cause_alc.astype(int)
+cl['type_non_alc'] = cause_non_alc.astype(int)
+cl['type_unknown'] = (~cause_alc & ~cause_non_alc).astype(int)
+
+
+#print number of rows
+print(len(cl))
+
+#look at the first 10 rows
+cl.head(10)
+
+# Export as csv
+cl.to_csv(r"C:\Users\UPDATE_USER_FILEPATH.csv", sep = ',')
