@@ -1,0 +1,81 @@
+ProdCodeId	Term from EMIS	DrugIssues
+a571441000033118	Ferrous sulfate 200mg tablets	20000000
+a2155541000033110	Ferrous fumarate 210mg tablets	10000000
+a571341000033112	Ferrous gluconate 300mg tablets	2000000
+a565241000033114	Ferrous fumarate 305mg capsules	1000000
+a572841000033112	Ferrous fumarate 322mg tablets	900000
+a1137441000033119	Pregaday 322mg/350microgram tablets (RPH Pharmaceuticals AB)	800000
+a573541000033116	Ferrograd 325mg modified-release tablets (Teofarma S.r.l.)	600000
+a3098241000033111	Sodium feredetate (iron 27.5mg/5ml) oral solution sugar free	500000
+a569941000033119	Ferrous fumarate 140mg/5ml oral solution	400000
+a569341000033118	Ferrous sulfate 325mg modified-release tablets	400000
+a1400141000033117	Sytron oral solution (Forum Health Products Ltd)	400000
+a2078741000033116	Ferrous fumarate 140mg/5ml oral solution sugar free	300000
+a563741000033119	Fefol Spansules (Intrapharm Laboratories Ltd)	100000
+a570041000033118	Fersamal 140mg/5ml syrup (Advanz Pharma)	100000
+a573741000033112	Ferrograd Folic 325mg/350microgram modified-release tablets (Teofarma S.r.l.)	100000
+a574041000033112	Fersaday 322mg tablets (Advanz Pharma)	100000
+a3228941000033115	Ferrous fumarate 322mg / Folic acid 350microgram tablets	100000
+a568241000033115	Ferrous Sulfate Paediatric Mixture 60 mg/5 ml	10000
+a1347841000033112	Slow Fe Folic 160mg/400microgram tablets (Novartis Consumer Health UK Ltd)	60000
+a1347741000033119	Slow-Fe 160mg tablets (Novartis Consumer Health UK Ltd)	60000
+a621141000033118	Galfer 305mg capsules (Thornton & Ross Ltd)	60000
+a2155841000033112	Fersamal 210mg tablets (Mercury Pharma Group Ltd)	60000
+a573441000033117	Ferrocontin Folic Continus Tablets	50000
+a2745841000033116	Spatone Iron + Sachets	40000
+a573341000033111	Ferrocontin Continus Tablets 562.5 mg	40000
+a3228441000033113	Ferrous sulfate 325mg / Folic acid 350microgram modified-release tablets	30000
+a3228541000033114	Ferrous fumarate 305mg / Folic acid 350microgram capsules	30000
+a571241000033119	Ferrous Fumarate Tablets 200 mg	30000
+a570141000033119	Ferrous glycine sulfate 141mg/5ml oral solution	30000
+a626141000033110	Galfer 140mg/5ml syrup (Thornton & Ross Ltd)	20000
+a1094241000033110	Plesmet 141mg/5ml syrup (Link Pharmaceuticals Ltd)	20000
+a574541000033119	Ferrous Sulfate Tablets 300 mg	20000
+a8125141000033114	Valupak Multivitamin plus Iron One A Day tablets (BR Pharmaceuticals Ltd)	20000
+a569241000033111	Ferrous sulfate 160mg modified-release tablets	20000
+a12105841000033115	Spatone Original 20ml sachets (Nelsons)	10000
+a568141000033110	Ferrous Sulfate Mixture 60 mg/5 ml	10000
+a571541000033117	Fersamal Tablets 200 mg	10000
+a4374541000033113	Ferrous sulfate 125mg/ml oral drops sugar free	10000
+a574341000033114	Ferrous Fumarate Tablets 304 mg	8000
+a4374641000033114	Ironorm 125mg/ml oral drops (Wallace Manufacturing Chemists Ltd)	6000
+a564341000033117	Ferrous Sulfate Capsules 150 mg	5000
+a573641000033115	Ferrograd C modified-release tablets (Teofarma S.r.l.)	4000
+a574441000033115	Ferrous Glycine Sulfate Tablets 562.5 mg	4000
+a11662041000033116	Ferric maltol (iron 30mg) capsules	3000
+a11662141000033117	Feraccru 30mg capsules (Norgine Pharmaceuticals Ltd)	3000
+a566441000033118	Ferromyn Elixir 106 mg/5 ml	2000
+a574241000033116	Ferrous Fumarate Tablets 100 mg	2000
+a574641000033118	Ferrous Sulfate Compound Tablets	2000
+a573241000033118	Fergon Tablets 300 mg	1000
+a824741000033113	Lexpec Folic Acid with Iron oral solution (Rosemont Pharmaceuticals Ltd)	1000
+a824841000033115	Lexpec Folic Acid and Iron M oral solution (Rosemont Pharmaceuticals Ltd)	1000
+a566241000033119	Ferrous Sulfate Drops 116 mg/ml	900
+a565341000033116	Ferrous Glycine Sulfate Capsules 565 mg	700
+a6001841000033110	Ferrous sulfate 60mg/5ml oral solution	600
+a4422941000033116	Ferrous sulfate 625mg/5ml oral solution	600
+a565841000033113	Ferrocap Capsules 330 mg	500
+a573141000033113	Ferfolic SV modified-release tablets (Durbin Plc)	500
+a566541000033117	Ferrous Succinate Elixir 106 mg/5 ml	400
+a573941000033110	Ferrous Succinate Tablets 100 mg	200
+a774841000033118	Ironorm Drops 116 mg/ml	200
+a967641000033112	Niferex-150 Capsules 150 mg	100
+a5993041000033110	Ferrous sulfate 60mg/5ml oral suspension	100
+a3228741000033118	Ferric ammonium citrate 400mg/5ml / Folic acid 2.5mg/5ml oral solution sugar free	100
+a565041000033118	Ferrocap-F 350 Capsules	100
+a12990241000033111	FerroEss 305mg capsules (Essential-Healthcare Ltd)	100
+a13789341000033113	Spatone Apple with Vitamin C 25ml sachets (Nelsons)	90
+a565441000033110	Ferrous Fumarate Capsules 330 mg	90
+a774741000033111	Ironorm capsules (Wallace Manufacturing Chemists Ltd)	90
+a3228841000033111	Ferric ammonium citrate 400mg/5ml / Folic acid 500micrograms/5ml oral solution sugar free	70
+a573841000033119	Ferromyn Tablets 100 mg	60
+a6525541000033116	"Steriferol Oral solution 20,000 units/ml"	40
+a13800841000033114	FerroEss 210mg tablets (Essential-Healthcare Ltd)	40
+a1096441000033118	Polysaccharide-Iron Capsules 150 mg	20
+a1097641000033118	Polysaccharide-Iron Complex Tablets	20
+a976241000033118	Niferex Tablets 50 mg	6
+a120341000033112	Bc 500 With Iron Tablets	6
+a120541000033117	Bc-500 With Iron Tablets	5
+a13789441000033119	FerroDose-S 200mg tablets (TriOn Pharma Ltd)	3
+a1352741000033119	Sodium Ironedate Elixir 27.5 mg/5 ml	1
+a13789741000033114	FerroTab 200mg tablets (Essential-Healthcare Ltd)	1
