@@ -1,0 +1,4819 @@
+# Load Packages 
+if(F){
+  install.packages("dplyr")
+  install.packages("readr")
+  install.packages("tableone")
+  install.packages("stringr")
+  install.packages("lubridate")
+  install.packages("ggalluvial")
+  install.packages("ggpattern", dependencies = TRUE)
+  install.packages("ggplot2")
+}
+
+
+# Load librarys
+library(DBI)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(stringr)
+library(lubridate)
+library(ggalluvial)
+library(ggplot2)
+#library(ggpattern)
+library(flextable)
+library(officer)
+library(survival)
+library(survminer)
+library(forcats)
+
+
+# Connect to SQL CPRD data
+# username orchid\cig-x10067
+
+con <- dbConnect(odbc::odbc(), 'CPRDSQL', timeout=10, Database='CPRD_Workspace',
+                 uid=rstudioapi::showPrompt(title="Username", message="Username",default=""),
+                 pwd=rstudioapi::askForPassword())
+
+# Transfer data into R environment
+
+demographics <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[Cohort_Demographics_20250114]')
+cirrhosis_type_cohort <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[Cirrhosis_Type_20250311]')
+imd_cohort <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[IMD]')
+alt_during_study <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[ALT_during_study_20250311]')
+bmi_prior_study <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[BMI_prior_study_20241231]')
+ltmcs <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[Cohort_LTMCs_20250102]')
+hb_mcv_during_study <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[Concurrent_Hb_MCV_during_study_20241231]')
+crp_during_study <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[CRP_during_study_20241231]')
+ferritin_during_study <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[Ferritin_during_study_20241231]')
+hbs_during_study <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[Hbs_during_study_20250114]')
+MCV_during_study <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[MCV_during_study_20241231]')
+Oral_Iron_during_study <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[Oral_Iron_during_study_20241231]')
+PlateletCount_during_study <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[PlateletCount_during_study_20241231]')
+ast_during_study <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[AST_during_study_20250311]')
+tsat_during_study <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[TransferrinSaturation_during_study_20241231]')
+livertx_all_study <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[LiverTransplant_during_study_20250314]')
+bilirubin_during_study <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[SerumBilirubin_during_study_20250311]')
+creatinine_during_study <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[SerumCreatinine_during_study_20250311]')
+sodium_during_study <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[SerumSodium_during_study_20250311]')
+inr_during_study <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[INR_during_study_20250311]')
+diabetes <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[Diabetic_during_study_20250314]')
+cirrhosis_aetiology_basic <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[Cirrhosis_aetiology_basic_20251216]')
+cirrhosis_aetiology_extended <- DBI::dbGetQuery(con, 'SELECT * FROM[CPRD_Workspace].[Anaemia_PC_Susan_Data].[Cirrhosis_aetiology_extended_20251216]')
+
+#---------------------------------------------------------------------------------------------------------------
+# DATA PRE-PROCESSING
+
+# Change patid to character for all data frames
+
+# List all objects in the environment
+all_objects <- ls()
+print(all_objects)
+
+# Filter for data frames
+data_frames <- all_objects[sapply(all_objects, function(x) is.data.frame(get(x)))]
+
+# Apply the transformation to each data frame
+for (df_name in data_frames) {
+  # Get the data frame
+  df <- get(df_name)
+  
+  # Check if 'patid' exists in the data frame
+  if ("patid" %in% colnames(df)) {
+    # Apply the transformation
+    df <- df %>%
+      mutate(patid = as.character(patid))
+    
+    # Assign the modified data frame back to the original name
+    assign(df_name, df, envir = .GlobalEnv)
+  }
+}
+
+# Change all columns containing "obsdate" to Date format (and Index_FirstHb_date, and EndOfFUPeriod)
+for (df_name in data_frames) {
+  # Get the data frame
+  df <- get(df_name)
+  
+  # Identify columns containing "date" or "Period"
+  date_columns <- grep("date|Period", colnames(df), value = TRUE)
+  
+  # Apply the transformation if there are any matching columns
+  if (length(date_columns) > 0) {
+    df <- df %>%
+      mutate(across(all_of(date_columns), as.Date))
+    
+    # Assign the modified data frame back to the original name
+    assign(df_name, df, envir = .GlobalEnv)
+  }
+}
+
+
+#  Liver transplant patients
+
+# Exclude all those who had record of a liver transplant prior to Index first Hb date
+
+str(livertx_all_study)
+livertx_all_study %>%
+  summarise(n_distinct(patid))
+
+# Merge IndexFirstHbdate in livertx_all_study 
+livertx_all_study <- livertx_all_study %>%
+  left_join(demographics %>% select (patid,Index_FirstHb_date), by = 'patid')
+
+# Filter where liver transplant obs date is <= Index Hb date
+livertx_exclude <- livertx_all_study %>%
+  filter(LiverTransplant_obsdate <= Index_FirstHb_date)
+
+# Remove patids where Liver Tx prior to Index study hb
+demographics <- demographics %>%
+  anti_join(livertx_exclude, by = 'patid') # n = 43,083 (lose 992 patids)
+
+rm(livertx_exclude)
+
+# Update remaining data sets to include only those who have no record of liver transplant prior to or on Index Hb
+
+filter_patids_in_demographics <- function() {
+  # Ensure demographics dataset exists
+  if (!exists("demographics")) {
+    stop("Error: demographics dataset not found in the environment.")
+  }
+  
+  # Extract valid patid values
+  valid_patids <- demographics$patid
+  
+  # Get all data frames in the environment
+  data_frames <- ls(envir = .GlobalEnv)
+  
+  # Loop through each data frame
+  for (df_name in data_frames) {
+    df <- get(df_name, envir = .GlobalEnv)
+    
+    # Ensure the dataset contains "patid" before filtering
+    if (!"patid" %in% colnames(df)) next
+    
+    # Filter the dataset
+    df <- df %>% filter(patid %in% valid_patids)
+    
+    # Save the updated dataset
+    assign(df_name, df, envir = .GlobalEnv)
+    message(paste("Filtered:", df_name, "- Remaining rows:", nrow(df)))
+  }
+  
+  message("Filtering complete!")
+}
+
+# Run the function
+filter_patids_in_demographics()
+
+
+
+# Update EndOfFUPeriod aligning with transplant
+# Set EndOfFUPeriod to LiverTransplant_obsdate for patids with liver transplant during study if after current EndOfFUPeriod
+
+# Remaining patids in liver tx all study had liver transplant during study period (between Index Hb and EndOfFUPeriod)
+
+liver_tx_remain <- livertx_all_study %>%
+  filter(LiverTransplant_obsdate > Index_FirstHb_date) # n = 509 (just checking)
+
+# For all d.fs in environment if patid is within liver_tx_remain and EndOfFUPeriod (observation in environment d.f) is > LiverTransplant_obsdate (observation in liver_tx_remain d.f), change EndOfFUPeriod date to LiverTransplant_obsdate (keep column name the same)
+# Then filter all d.fs which have a column containing 'obsdate' to only keep rows where 'obsdate' is <= to EndOfFUPeriod
+
+update_fu_and_filter_obsdates <- function() {
+  df_names <- ls(envir = .GlobalEnv)
+  
+  if (!"liver_tx_remain" %in% df_names) {
+    stop("liver_tx_remain dataset not found in the environment.")
+  }
+  
+  liver_tx_remain <- get("liver_tx_remain", envir = .GlobalEnv)
+  
+  for (df_name in df_names) {
+    if (df_name %in% c("liver_tx_remain", "livertx_all_study")) next
+    
+    df <- get(df_name, envir = .GlobalEnv)
+    
+    if (!("patid" %in% colnames(df) && "EndOfFUPeriod" %in% colnames(df))) next
+    
+    message(paste("Processing:", df_name, "- Initial rows:", nrow(df))) # Debugging message
+    
+    df <- df %>%
+      left_join(liver_tx_remain %>% select(patid, LiverTransplant_obsdate), by = "patid") %>%
+      mutate(EndOfFUPeriod = if_else(!is.na(LiverTransplant_obsdate) & EndOfFUPeriod > LiverTransplant_obsdate,
+                                     LiverTransplant_obsdate, 
+                                     EndOfFUPeriod)) %>%
+      select(-LiverTransplant_obsdate)
+    
+    obsdate_columns <- grep("obsdate", colnames(df), value = TRUE, ignore.case = TRUE)
+    
+    if (length(obsdate_columns) > 0) {
+      df <- df %>%
+        filter(across(all_of(obsdate_columns), ~ . <= EndOfFUPeriod))
+    }
+    
+    assign(df_name, df, envir = .GlobalEnv)
+    message(paste("Updated:", df_name, "- Final rows:", nrow(df))) # Success message
+  }
+}
+
+update_fu_and_filter_obsdates()
+
+
+
+#---------------------------------------------------------------------------------------------------------------
+
+# DATA CHECKING
+# Count number unique patid within demographics 
+demographics %>%
+  summarise(n_distinct(patid),                  # n = 43,083
+            sum(is.na(Index_FirstHb_date)))     # n = 0 
+
+# Check number unique pt with Hb during study (should be all) 
+hbs_during_study %>%
+  summarise(n_distinct(patid))                 # n = 43,083 
+
+
+#---------------------------------------------------------------------------------------------------------------
+# DATA CLEANING
+
+#Biologically plausible limits
+# Hb 0 - 250 
+# MCV 50 -150
+# plt 0 - 3000
+# INR 0.1 - 20
+# ferritin 0 - no upper bound
+# AST 0 -5000
+# ALT 0 - 5000
+# Creat 0 - 7000
+# Sodium 0 -200
+# Bilirubin 0 - 1000
+
+# Hb 
+# Index Hb: Summary stats for Hb index
+summary(demographics)
+hist(demographics$Index_Hb_value)
+
+# All Hb already between 0 and 250 due to data extract criteria
+# Hb <20 multiply by 10
+demographics %>%
+  filter(Index_Hb_value <=20) %>%
+  summarise(count=n()) # n = 695 
+
+demographics <- demographics %>%
+  mutate(Index_Hb_gdL = if_else(Index_Hb_value <=20,Index_Hb_value*10,Index_Hb_value))
+
+# Summary stats for Hb during study clean
+summary(demographics$Index_Hb_gdL)
+hist(demographics$Index_Hb_gdL)
+
+# Study Hb: Summary stats for Hb during study
+summary(hbs_during_study)
+hist(hbs_during_study$Hb_value)
+
+# All Hb already between 0 and 250 due to data extract criteria
+# Hb <20 multiply by 10
+hbs_during_study %>%
+  filter(Hb_value <=20) %>%
+  summarise(count=n()) # n = 2262 
+
+hbs_during_study <- hbs_during_study %>%
+  mutate(Hb_value_gdL = if_else(Hb_value <=20,Hb_value*10,Hb_value))
+
+# Summary stats for Hb during study clean
+summary(hbs_during_study)
+hist(hbs_during_study$Hb_value_gdL)
+
+# Platelets
+# remove biologically implausible results
+# Consider plt count >3000 (n=4) or <1 as erroneous (n=1) and filter to exclude
+sum(PlateletCount_during_study$PlateletCount_value >3000)
+sum(PlateletCount_during_study$PlateletCount_value <1)
+
+# View and exclude those with '.' n = 42
+PlateletCount_during_study_filtered <- PlateletCount_during_study %>%
+  filter(grepl('\\.',PlateletCount_during_study$PlateletCount_value))
+
+rm(PlateletCount_during_study_filtered)
+
+PlateletCount_during_study <- PlateletCount_during_study %>%
+  filter(!grepl('\\.', PlateletCount_value)& 
+           PlateletCount_value >= 1 & 
+           PlateletCount_value < 3000) # lost 46 values
+
+# MCV
+
+# Remove biologically implausible results
+# MCV <50
+hb_mcv_during_study %>%
+  filter(mcv_value < 20) %>%
+  summarise(count=n()) # n = 20
+
+# MCV >150 (nb parameters for extraction already defined upper limit)
+hb_mcv_during_study %>%
+  filter(mcv_value > 150) %>%
+  summarise(count=n()) # n = 0
+
+# Remove mcv <50
+hb_mcv_during_study <- hb_mcv_during_study %>%
+  filter(mcv_value >= 20)
+# lost 20 values
+
+# Summary stats for mcv with correpsonding hb during study clean
+summary(hb_mcv_during_study)
+hist(hb_mcv_during_study$mcv_value)
+
+# Hb value within Hb_mcv is not cleaned 
+
+# Apply same criteria as to study Hb
+# Study Hb: Summary stats for Hb during study
+summary(hb_mcv_during_study)
+hist(hb_mcv_during_study$Hb_value)
+
+# All Hb already between 0 and 250 due to data extract criteria
+# Hb <20 multiply by 10
+hb_mcv_during_study %>%
+  filter(Hb_value <=20) %>%
+  summarise(count=n()) # n = 1814 
+
+hb_mcv_during_study <- hb_mcv_during_study %>%
+  mutate(Hb_value_gdL = if_else(Hb_value <=20,Hb_value*10,Hb_value))
+
+# Summary stats for Hb during study clean
+summary(hb_mcv_during_study)
+hist(hb_mcv_during_study$Hb_value_gdL)
+
+# ALT
+summary(alt_during_study)
+
+# AST
+summary(ast_during_study)
+
+# Bilirubin
+# Check number unique pt during study
+bilirubin_during_study %>%
+  summarise(n_distinct(patid))                 # n = 41366 
+hist(bilirubin_during_study$SerumBilirubin_value) # positive skew
+summary(bilirubin_during_study)
+
+# Sodium
+# Check number unique pt during study 
+sodium_during_study %>%
+  summarise(n_distinct(patid))                 # n = 42102 
+hist(sodium_during_study$SerumSodium_value) # slight negative skew
+summary(sodium_during_study)
+
+# Creatinine
+# Check number unique pt during study  
+creatinine_during_study %>%
+  summarise(n_distinct(patid))                 # n = 42174 
+hist(creatinine_during_study$SerumCreatinine_value) # positive skew
+summary(creatinine_during_study)
+
+# INR
+# Check number unique pt during study 
+inr_during_study %>%
+  summarise(n_distinct(patid))                 # n = 13350 
+hist(inr_during_study$INR_value) # normal distribution
+summary(inr_during_study)
+
+# --------------------------------------------------------------------------------------------------------------
+# NEW VARIABLE GENERATION
+
+# Ethnicity group
+
+# Check unique ethnicity description
+unique(demographics$eth19_2021)
+sum(is.na(demographics$eth19_2021))
+
+# Format ethnicity (remove white space)
+demographics <- demographics %>%
+  mutate(eth19_2021 = str_trim(eth19_2021))
+
+# Create ethnicity groups
+demographics <- demographics %>%
+  mutate(ethnicity = case_when(
+    eth19_2021 %in% c("English, Welsh, Scottish, Northern Irish or British", "Gypsy or Irish Traveller","Irish","Roma", "Any other White background") ~ "White or White British",
+    eth19_2021 %in% c("Arab", "Bangladeshi", "Chinese","Indian","Pakistani", "Any other Asian background") ~ "Asian or Asian British",
+    eth19_2021 %in% c("African", "Caribbean", "Any other Black, Black British or Caribbean background") ~ "Black, Black British, Black Welsh, Caribbean or Africa",
+    eth19_2021 %in% c("White and Asian", "White and Black African","White and Black Caribbean", "Any other Mixed or multiple ethnic background") ~ "Mixed or Multiple ethnic groups",
+    eth19_2021 %in% c("Any other ethnic group") ~ "Other",
+    TRUE ~ "Not recorded" #Any other ethnic group n = 274
+  ))
+
+table(demographics$ethnicity)
+
+# Age at index date
+demographics <- demographics %>%
+  mutate(
+    Index_Hb_year = year(ymd(Index_FirstHb_date)), # Extract the year
+    Age_index_Hb = Index_Hb_year - yob            # Calculate age
+  )
+
+summary(demographics$Age_index_Hb)
+
+# Age group
+demographics <- demographics %>%
+  mutate(Age_group = case_when(
+    Age_index_Hb < 18 ~ "Under 18",
+    Age_index_Hb >= 18 & Age_index_Hb <= 49 ~ "18-49",
+    Age_index_Hb >= 50 & Age_index_Hb <= 64 ~ "50-64",
+    Age_index_Hb >= 65 & Age_index_Hb <= 74 ~ "65-74",
+    Age_index_Hb >= 75 ~ ">=75",
+    TRUE ~ NA_character_ # Handles missing or unexpected values
+  ))
+
+# Cause of cirrhosis
+
+cirrhosis_type_cohort %>%
+  summarise(
+    type_alc_count = n_distinct(patid[type_alc == 1]),
+    type_non_alc_count = n_distinct(patid[type_non_alc == 1]),
+    type_unknown_count = n_distinct(patid[type_unknown == 1])
+  )
+
+cirrhosis_type <- cirrhosis_type_cohort %>%
+  group_by(patid) %>%
+  summarise(type_cirrhosis = case_when(
+    any(type_alc == 1) ~ 'alcohol',  # Prioritises alcohol if any record has type_alc == 1
+    any(type_non_alc == 1) ~ 'non-alcohol',  # Assigns non-alcohol if no alcohol but at least one non-alcohol
+    TRUE ~ 'unknown'  # Default to unknown if neither type_alc nor type_non_alc is 1
+  ))
+
+cirrhosis_type %>%
+  group_by(type_cirrhosis) %>%
+  summarise(n_distinct(patid))
+
+cirrhosis_type2 <- cirrhosis_type_cohort %>%
+  group_by(patid) %>%
+  summarise(
+    type_cirrhosis = case_when(
+      any(type_alc == 1) & any(type_non_alc == 1) ~ "mixed",       # both types recorded
+      any(type_alc == 1) ~ "alcohol",                              # only alcohol
+      any(type_non_alc == 1) ~ "non-alcohol",                      # only non-alcohol
+      TRUE ~ "unknown"                                              # neither recorded
+    )
+  )
+
+# ADDED 12/12/25 to explore aetiologies NB INNOCENT TO KINDLY RE-EXTRACT
+cirrhosis_type2 %>%
+  group_by(type_cirrhosis) %>%
+  summarise(n_distinct(patid))
+
+# counts where aetiology classification has changed
+cirrhosis_type_cohort %>%
+  filter(medcodeid == 493707012) # hypertrophic portal cirrhosis n = 92 (most common)
+
+cirrhosis_type_cohort %>%
+  filter(medcodeid == 2576980018) # portal cirrhosis n = 72 (second most common)
+
+# ADDED 06/01/2026 Updated cirrhosis aetiology extraction
+# 1. BASIC
+
+# NB MIXED PORTAL in BASIC incorrectly coded as 'non-alc' - need to change to 'unspecified'
+cirrhosis_aetiology_basic %>%
+  filter(term == 'Mixed portal cirrhosis')
+
+cirrhosis_aetiology_basic <- cirrhosis_aetiology_basic %>%
+  mutate(
+    non_alcohol  = if_else(term == "Mixed portal cirrhosis", "0", non_alcohol),
+    unspecified  = if_else(term == "Mixed portal cirrhosis", "1", unspecified)
+  )
+
+cirrhosis_basic <- cirrhosis_aetiology_basic %>%
+  group_by(patid) %>%
+  summarise(aetiology_cirrhosis = case_when(
+    any(alcohol == 1) ~ 'alcohol',  # Prioritises alcohol if any record has type_alc == 1
+    any(non_alcohol == 1) ~ 'non-alcohol',  # Assigns non-alcohol if no alcohol but at least one non-alcohol
+    TRUE ~ 'unspecified'  # Default to unknown if neither type_alc nor type_non_alc is 1
+  ))
+
+cirrhosis_basic_2 <- cirrhosis_aetiology_basic %>%
+  group_by(patid) %>%
+  summarise(
+    aetiology_cirrhosis = case_when(
+      any(alcohol == 1) & any(non_alcohol == 1) ~ "mixed",       # both types recorded
+      any(alcohol == 1) ~ "alcohol",                              # only alcohol
+      any(non_alcohol == 1) ~ "non-alcohol",                      # only non-alcohol
+      TRUE ~ "unspecified"                                              # neither recorded
+    )
+  )
+
+cirrhosis_basic %>%
+  group_by(aetiology_cirrhosis) %>%
+  summarise(n_distinct(patid))
+
+cirrhosis_basic_2 %>%
+  group_by(aetiology_cirrhosis) %>%
+  summarise(n_distinct(patid)) # only 85 had 'mixed' alc and non-alco, keep high level groups
+
+# 2. EXTENDED
+
+cirrhosis_extended <- cirrhosis_aetiology_extended %>%
+  group_by(patid) %>%
+  summarise(
+    alc  = any(alcohol == 1, na.rm = TRUE),
+    vir  = any(viral == 1, na.rm = TRUE),
+    met  = any(metabolic == 1, na.rm = TRUE),
+    auto = any(autoimmune == 1, na.rm = TRUE),
+    oth  = any(other_specified == 1, na.rm = TRUE),
+    nao  = any(non_alc_otherwise_unspecified == 1, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    n_codes = (alc + vir + met + auto + oth + nao),
+    aetiology_cirrhosis = case_when(
+      n_codes > 1 ~ "mixed",
+      alc  ~ "alcohol",
+      vir  ~ "viral",
+      met  ~ "metabolic",
+      auto ~ "autoimmune",
+      oth  ~ "other_specified",
+      nao  ~ "non_alc_otherwise_unspecified",
+      TRUE ~ "unspecified"
+    )
+  ) %>%
+  select(patid, aetiology_cirrhosis)
+
+
+cirrhosis_extended %>%
+  group_by(aetiology_cirrhosis) %>%
+  summarise(n = n_distinct(patid), .groups = "drop") %>%
+  mutate(pct = scales::percent(n / 43083, accuracy = 0.1))
+
+
+# LTMCs
+
+# Add diabetes to ltmcs
+
+ltmcs <- ltmcs %>%
+  mutate(Prevalence_Diabetes = if_else(patid %in% diabetes$patid, 1, 0))
+
+# ALL ltmcs: total number 
+ltmcs <- ltmcs %>%
+  mutate(ltmcs_number = rowSums(select(., contains("prevalence")), na.rm = TRUE))
+
+# ALL ltmcs: Group 0, 1, >=2
+ltmcs <- ltmcs %>%
+  mutate(ltmcs_group = case_when(
+    ltmcs_number == 0 ~ "0",
+    ltmcs_number == 1 ~ "1",
+    ltmcs_number >= 2 ~ ">=2",
+    TRUE ~ NA_character_ # Handles missing or unexpected values
+  ))
+
+# Remove ltmcs not in protocol (ADDED 20250715)
+
+ltmcs_2 <- ltmcs %>%
+  select(-Prevalence_Dementia, -Prevalence_Osteoarthritis, -Prevalence_Parkinsons, -Prevalence_Stroke, -Prevalence_Multiple_Sclerosis, -Prevalence_PCOS, -Prevalence_Endometriosis, -Prevalence_Rhinitis)
+
+# MODIFIED ltmcs: ltmcs_2 total number 
+ltmcs_2 <- ltmcs_2 %>%
+  mutate(ltmcs_number_2 = rowSums(select(., contains("prevalence")), na.rm = TRUE))
+
+# MODIFIED ltmcs: Group 0, 1, >=2
+ltmcs_2 <- ltmcs_2 %>%
+  mutate(ltmcs_group_2 = case_when(
+    ltmcs_number_2 == 0 ~ "0",
+    ltmcs_number_2 == 1 ~ "1",
+    ltmcs_number_2 >= 2 ~ ">=2",
+    TRUE ~ NA_character_ # Handles missing or unexpected values
+  ))
+
+# Anaemia at index y/n and severity
+demographics <- demographics %>%
+  mutate(
+    anaemia_index = case_when(
+      # Men
+      gender == 'M' & Index_Hb_gdL >= 110 & Index_Hb_gdL < 130 ~ 'Mild',
+      gender == 'M' & Index_Hb_gdL >= 80 & Index_Hb_gdL < 110 ~ 'Moderate',      
+      gender == 'M' & Index_Hb_gdL < 80 ~ 'Severe',
+      
+      # Females
+      gender == 'F' & Index_Hb_gdL >= 110 & Index_Hb_gdL < 120 ~ 'Mild',
+      gender == 'F' & Index_Hb_gdL >= 80 & Index_Hb_gdL < 110 ~ 'Moderate',      
+      gender == 'F' & Index_Hb_gdL < 80 ~ 'Severe',
+      
+      # Default "No anaemia" if Hb doesn't meet any criteria
+      TRUE ~ "No Anaemia"
+    )
+  )
+table(demographics$anaemia_index)
+
+# Ferritin test y/n
+ferritin_during_study %>%
+  summarise(unique_patids = n_distinct(patid))
+
+ferritin_during_study <- ferritin_during_study %>%
+  group_by(patid) %>%
+  mutate(ynferritin = if_else(Ferritin_value != 0, 1, 0)) %>%
+  ungroup()
+
+# Oral iron prescription y/n
+Oral_Iron_during_study <- Oral_Iron_during_study %>%
+  group_by(patid) %>%
+  mutate(ynoraliron = if_else(Oral_Iron_issuedate != 0, 1, 0)) %>%
+  ungroup()
+
+# Ferritin within 90d Hb y/n
+Hb_fer_90d <- hbs_during_study %>%
+  inner_join(ferritin_during_study, by = "patid") %>%
+  mutate(date_diff = abs(as.numeric(Hb_obsdate - Ferritin_obsdate))) %>%
+  filter(date_diff <= 90) 
+
+Hb_fer_90d %>%
+  summarise(n_distinct(patid))                  # n = 23,319
+
+Hb_fer_90d <- Hb_fer_90d %>%
+  mutate(yn_Hb_fer_90d = 1)
+
+
+# Anaemia during study
+# hbs_min_during_study
+hbs_min_during_study <- hbs_during_study %>%
+  group_by(patid) %>%
+  arrange(Hb_value_gdL, Hb_obsdate) %>%  # First, arrange by Hb_value_gdL and obsdate (earliest date for duplicates)
+  slice(1)  # Select the first row for each group after sorting
+
+# Merge gender column into hbs_min_during_study
+hbs_min_during_study <- hbs_min_during_study %>%
+  left_join(demographics %>% select(patid, gender), by = "patid")
+
+# Label patients with anaemia based on nadir hb within study
+hbs_min_during_study <- hbs_min_during_study %>%
+  mutate(
+    anaemia_study = case_when(
+      # Men
+      gender == 'M' & Hb_value_gdL >= 110 & Hb_value_gdL < 130 ~ 'Mild',
+      gender == 'M' & Hb_value_gdL >= 80 & Hb_value_gdL < 110 ~ 'Moderate',      
+      gender == 'M' & Hb_value_gdL < 80 ~ 'Severe',
+      
+      # Females
+      gender == 'F' & Hb_value_gdL >= 110 & Hb_value_gdL < 120 ~ 'Mild',
+      gender == 'F' & Hb_value_gdL >= 80 & Hb_value_gdL < 110 ~ 'Moderate',      
+      gender == 'F' & Hb_value_gdL < 80 ~ 'Severe',
+      
+      # Default "No anaemia" if Hb doesn't meet any criteria
+      TRUE ~ "No Anaemia"
+    )
+  )
+table(hbs_min_during_study$anaemia_study)
+
+# Anaemia during study from cohort/subgroup where ferritin exists within 90d Hb
+
+# Merge gender column into Hb_fer_90d
+Hb_fer_90d <- Hb_fer_90d %>%
+  left_join(demographics %>% select(patid, gender), by = "patid")
+
+# Add columns
+  # Anaemia (severity)
+Hb_fer_90d <- Hb_fer_90d %>%
+  mutate(
+    anaemia_Hb_fer_90d = case_when(
+      # Men
+      gender == 'M' & Hb_value_gdL >= 110 & Hb_value_gdL < 130 ~ 'Mild',
+      gender == 'M' & Hb_value_gdL >= 80 & Hb_value_gdL < 110 ~ 'Moderate',      
+      gender == 'M' & Hb_value_gdL < 80 ~ 'Severe',
+      
+      # Females
+      gender == 'F' & Hb_value_gdL >= 110 & Hb_value_gdL < 120 ~ 'Mild',
+      gender == 'F' & Hb_value_gdL >= 80 & Hb_value_gdL < 110 ~ 'Moderate',      
+      gender == 'F' & Hb_value_gdL < 80 ~ 'Severe',
+      
+      # Default "No anaemia" if Hb doesn't meet any criteria
+      TRUE ~ "No Anaemia"
+    )
+  )
+table(Hb_fer_90d$anaemia_Hb_fer_90d)
+
+ # Anaemia yn
+
+Hb_fer_90d <- Hb_fer_90d %>%
+  mutate(
+    ynanaemia_Hb_fer_90d = case_when(
+      # Men
+      gender == 'M' & Hb_value_gdL < 130 ~ 1,
+      
+      # Females
+      gender == 'F' & Hb_value_gdL < 120 ~ 1,
+      
+      # Default "No anaemia" if Hb doesn't meet any criteria
+      TRUE ~ 0
+    )
+  )
+
+table(Hb_fer_90d$ynanaemia_Hb_fer_90d)
+
+# Counts
+ # Anaemia (any)
+Hb_fer_90d %>%
+  filter(ynanaemia_Hb_fer_90d == 1) %>%
+  summarise(n_distinct(patid))  # n = 14,560
+
+ # Iron deficiency anaemia
+
+ # Anaemia (any) and ferritin <15 
+Hb_fer_90d <- Hb_fer_90d %>%
+  mutate(
+    ynIDA15_Hb_fer_90d = case_when(
+      ynanaemia_Hb_fer_90d == 1 & Ferritin_value <= 15 ~ 1,
+      TRUE ~ 0
+    )
+  )
+
+table(Hb_fer_90d$ynIDA15_Hb_fer_90d)
+
+Hb_fer_90d %>%
+  filter(ynIDA15_Hb_fer_90d != 0) %>%
+  summarise(n_distinct(patid))  # n = 2907
+
+ # Anaemia (any) and ferritin <45
+Hb_fer_90d <- Hb_fer_90d %>%
+  mutate(
+    ynIDA45_Hb_fer_90d = case_when(
+      ynanaemia_Hb_fer_90d == 1 & Ferritin_value <= 45 ~ 1,
+      TRUE ~ 0
+    )
+  )
+
+table(Hb_fer_90d$ynIDA45_Hb_fer_90d)
+
+Hb_fer_90d %>%
+  filter(ynIDA45_Hb_fer_90d != 0) %>%
+  summarise(n_distinct(patid))  # n = 7097
+
+ # Anaemia (any) and ferritin <70
+Hb_fer_90d <- Hb_fer_90d %>%
+  mutate(
+    ynIDA70_Hb_fer_90d = case_when(
+      ynanaemia_Hb_fer_90d == 1 & Ferritin_value <= 70 ~ 1,
+      TRUE ~ 0
+    )
+  )
+
+table(Hb_fer_90d$ynIDA45_Hb_fer_90d)
+
+Hb_fer_90d %>%
+  filter(ynIDA70_Hb_fer_90d != 0) %>%
+  summarise(n_distinct(patid))   # n = 8470
+
+
+# Oral iron in patients with anaemia and ferritin within 90d
+Hb_fer_90d <- Hb_fer_90d %>%
+  left_join(Oral_Iron_during_study %>% select(patid, ynoraliron), by = "patid")
+
+Hb_fer_90d <- Hb_fer_90d %>%
+  mutate(
+    ynoraliron_anaemia_Hb_fer_90 = case_when(
+      ynanaemia_Hb_fer_90d == 1 & ynoraliron == 1 ~ 1,
+      TRUE ~ 0
+    )
+  )
+
+table(Hb_fer_90d$ynoraliron_anaemia_Hb_fer_90)
+
+Hb_fer_90d %>%
+  filter(ynoraliron_anaemia_Hb_fer_90 != 0) %>%
+  summarise(n_distinct(patid))   # n = 7922
+
+# Length of follow up
+demographics <- demographics %>%
+  mutate(length_of_follow_up_years = time_length(interval(StartOfFollowUp, EndOfFUPeriod), "years"))
+summary(demographics$length_of_follow_up_years)
+hist(demographics$length_of_follow_up_years)
+
+# Time from first record of cirrhosis 
+demographics <- demographics %>%
+  mutate(time_from_first_cirrhosis = time_length(interval(First_Cirrhosis_Date, Index_FirstHb_date), "years"),
+         time_from_first_cirrhosis = pmin(time_from_first_cirrhosis, Age_index_Hb)) # Ensures no value exceeds patient age
+
+summary(demographics$time_from_first_cirrhosis)
+hist(demographics$time_from_first_cirrhosis)
+
+# Lowest MCV during study
+mcv_min_during_study <- hb_mcv_during_study %>%
+  group_by(patid) %>%
+  arrange(mcv_value, mcv_date) %>%
+  slice(1) %>%
+  ungroup()
+
+# Lowest MCV during study group
+mcv_min_during_study <- mcv_min_during_study %>%
+  mutate(
+    mcv_min_group = case_when(
+      mcv_value < 80 ~ '<80',
+      mcv_value >=80 & mcv_value <=95 ~ '80-95',
+      mcv_value >95 & mcv_value <= 100 ~ '95-100',
+      mcv_value > 100 ~ '>100',
+      
+      # Default "mcv missing" if mcv doesn't meet any criteria
+      TRUE ~ "mcv missing"
+    )
+  )
+
+# # UKELD Score =
+# 5.395 × In(INR) + 
+# 1.485 × In(creatinine, μmol/L) +
+# 3.13 × In(bilirubin, μmol/L) - 
+# 81.565 × In(sodium, mmol/L) + 
+# 435
+
+# Calculate score at indexHb
+
+# UKELD d.f 
+UKELD <- demographics %>%
+  select(patid, StartOfFollowUp, Index_FirstHb_date, Age_index_Hb)
+
+n_distinct(UKELD$patid) # n = 43083
+n_distinct(inr_during_study$patid) # n= 12,859
+n_distinct(creatinine_during_study$patid) # n= 41,215
+n_distinct(bilirubin_during_study$patid) # n= 40,413
+n_distinct(sodium_during_study$patid) # n = 41,153
+
+# Join inr results and filter for the closest prior index inr result
+UKELD <- UKELD %>%
+  left_join(inr_during_study %>% select(patid, INR_obsdate, INR_value), by = "patid") %>% # Merge all inr results for each patient
+  filter(INR_obsdate <= Index_FirstHb_date) %>%  # Keep only inr dates before Hb date
+  arrange(patid, desc(INR_obsdate)) %>%  # Sort by patient and closest inr date (descending)
+  group_by(patid) %>%
+  slice(1) %>%  # Select only the most recent inr result
+  ungroup()
+
+n_distinct(UKELD$patid) # n = 5,722
+
+# Join creatinine results and filter for the closest prior index creatinine result
+
+UKELD <- UKELD %>%
+  left_join(creatinine_during_study %>% select(patid, SerumCreatinine_obsdate, SerumCreatinine_value), by = "patid") %>% # Merge all creatinine results for each patient
+  filter(SerumCreatinine_obsdate <= Index_FirstHb_date) %>%  # Keep only creatinine dates before Hb date
+  arrange(patid, desc(SerumCreatinine_obsdate)) %>%  # Sort by patient and closest creatinine date (descending)
+  group_by(patid) %>%
+  slice(1) %>%  # Select only the most recent creatinine result
+  ungroup()
+
+n_distinct(UKELD$patid) # n = 5,129
+
+# Join bilirubin results and filter for the closest prior index bili result
+
+UKELD <- UKELD %>%
+  left_join(bilirubin_during_study %>% select(patid, SerumBilirubin_obsdate, SerumBilirubin_value), by = "patid") %>% # Merge all bilirubin results for each patient
+  filter(SerumBilirubin_obsdate <= Index_FirstHb_date) %>%  # Keep only bili dates before Hb date
+  arrange(patid, desc(SerumBilirubin_obsdate)) %>%  # Sort by patient and closest bili date (descending)
+  group_by(patid) %>%
+  slice(1) %>%  # Select only the most recent bili result
+  ungroup()
+
+n_distinct(UKELD$patid) # n = 4,706
+
+# Join sodium results and filter for the closest prior index sodium result
+
+UKELD <- UKELD %>%
+  left_join(sodium_during_study %>% select(patid, SerumSodium_obsdate, SerumSodium_value), by = "patid") %>% # Merge all sodium results for each patient
+  filter(SerumSodium_obsdate <= Index_FirstHb_date) %>%  # Keep only Na dates before Hb date
+  arrange(patid, desc(SerumSodium_obsdate)) %>%  # Sort by patient and closest Na date (descending)
+  group_by(patid) %>%
+  slice(1) %>%  # Select only the most recent Na result
+  ungroup()
+
+n_distinct(UKELD$patid) # n = 4,678
+
+summary(UKELD)
+
+# Calculate UKELD score and add as new column
+UKELD <- UKELD %>%
+  mutate(UKELD_score = 5.395 * log(INR_value) + 
+           1.485 * log(SerumCreatinine_value) + 
+           3.13 * log(SerumBilirubin_value) - 
+           81.565 * log(SerumSodium_value) + 
+           435)
+
+
+summary(UKELD)
+hist(UKELD$UKELD_score)
+
+# UKELD score risk
+UKELD <- UKELD %>%
+  mutate(UKELD_risk = case_when(
+    UKELD_score < 49 ~ 'Low',
+    UKELD_score >= 49 ~ 'High',
+    TRUE ~ "No UKELD"
+  ))
+table(UKELD$UKELD_risk)
+
+# --------------------------------------------------------------------------------------------------------------
+# RESULTS 1: DESCRIPTIVE
+# Summary stats for Hb
+summary(hbs_during_study)
+hist(hbs_during_study$Hb_value_gdL)
+
+# Non-independence of values therefore select one result per patient
+# Select a random row per unique patient
+set.seed(42) # Ensure reproducibility
+random_sample_hb <- hbs_during_study %>%
+  group_by(patid) %>%                 # Group by patient ID
+  slice_sample(n = 1) %>%             # Randomly select 1 row per group
+  ungroup()                           # Ungroup for final output
+
+hist(random_sample_hb$Hb_value_gdL)
+
+
+# Count unique patients who have ferritin test
+ferritin_during_study %>%
+  summarise(n_distinct(patid))                 # n = 23,495
+
+# Summary stats for ferritin
+summary(ferritin_during_study)
+hist(ferritin_during_study$Ferritin_value)
+
+# Log transformation of ferritin (due to non-parametric distribution)
+log_ferritin <- log(ferritin_during_study$Ferritin_value)
+hist(log_ferritin)
+
+# Non-independence of values therefore select one result per patient
+# Select a random row per unique patient
+set.seed(42) # Ensure reproducibility
+random_sample_ferritin <- ferritin_during_study %>%
+  group_by(patid) %>%                 # Group by patient ID
+  slice_sample(n = 1) %>%             # Randomly select 1 row per group
+  ungroup()                           # Ungroup for final output
+
+# Log-transform ferritin values
+random_sample_ferritin <- random_sample_ferritin %>%
+  mutate(log_ferritin = log(Ferritin_value))
+
+# Plot histogram
+ggplot(random_sample_ferritin, aes(x = log_ferritin)) +
+  geom_histogram(bins = 30, fill = "blue", color = "black", alpha = 0.5) +
+  scale_x_continuous(
+    breaks = pretty(random_sample_ferritin$log_ferritin), 
+    labels = function(x) round(exp(x), 2)  # Convert back to original scale
+  ) +
+  labs(
+    title = "Histogram of Log-Transformed Ferritin Values",
+    x = "Original Ferritin Values (Untransformed)",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+# Plot histogram with gender split
+# Add gender to ferritin during study d.f (keep all rows in ferritin_during_study)
+random_sample_ferritin <- random_sample_ferritin %>%
+  left_join(demographics %>% select(patid, gender), by = "patid")
+
+#Histogram gender split
+ggplot(random_sample_ferritin, aes(x = log_ferritin, fill = gender)) +
+  geom_histogram(bins = 30, alpha = 0.5, position = "identity") +
+  scale_x_continuous(
+    breaks = pretty(random_sample_ferritin$log_ferritin), 
+    labels = function(x) round(exp(x), 2)  # Convert back to original scale
+  ) +
+  labs(
+    title = "Histogram of Log-Transformed Ferritin Values",
+    x = "Original Ferritin Values (Untransformed)",
+    y = "Count",
+    fill = "Gender"
+  ) +
+  theme_minimal()
+
+# Plot box plot with ethnicity split
+# Add ehtnicity to ferritin during study d.f (keep all rows in ferritin_during_study)
+random_sample_ferritin <- random_sample_ferritin %>%
+  left_join(demographics %>% select(patid, ethnicity), by = "patid")
+
+# Plot box plot
+ggplot(random_sample_ferritin, aes(x = ethnicity, y = log_ferritin, fill = ethnicity)) +
+  geom_boxplot(alpha = 0.5, outlier.shape = 16, outlier.size = 2) +  # Box plot with styled outliers
+  scale_y_continuous(
+    breaks = pretty(random_sample_ferritin$log_ferritin), 
+    labels = function(y) round(exp(y), 2)  # Convert log scale back to original ferritin values
+  ) +
+  labs(
+    title = "Box Plot of Ferritin Values by Ethnicity",
+    x = "Ethnicity",
+    y = "Ferritin (Original Scale)",
+    fill = "Ethnicity"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for readability
+
+
+#-------------------------------------------------------------------------------------------------------------
+# RESULTS 2: TABLE ONE
+
+# Select variables required from demographics for final_cirrho
+final_cirrho <- demographics %>%
+  select(patid, Age_index_Hb, Age_group, gender, ethnicity, Index_Hb_gdL, anaemia_index, length_of_follow_up_years, time_from_first_cirrhosis) 
+
+# Merge cirrhosis type column into final cirrho
+final_cirrho <- final_cirrho %>%
+  left_join(cirrhosis_type %>% select(patid, type_cirrhosis), by = "patid")
+
+final_cirrho <- final_cirrho %>%
+  left_join(cirrhosis_basic %>% select(patid, aetiology_cirrhosis), by = "patid")
+
+# Merge fib4 risk column into final cirrho
+#final_cirrho <- final_cirrho %>%
+#  left_join(fib4 %>% select(patid, fib4_risk), by = 'patid')
+
+    # replace NAs with 'FIB4 not score'
+ # final_cirrho <- final_cirrho %>%
+  #  mutate(fib4_risk = replace_na(fib4_risk, "FIB4 not scored"))
+  
+# ^^^^ RUN UKELD RISK SCRIPT HERE
+# Merge UKELD risk column into final cirrho
+  final_cirrho <- final_cirrho %>%
+    left_join(UKELD %>% select(patid, UKELD_risk), by = 'patid')
+  
+  # replace NAs with 'UKELD not score'
+  final_cirrho <- final_cirrho %>%
+    mutate(UKELD_risk = replace_na(UKELD_risk, "UKELD not scored"))
+
+# Merge anaemia_study column into final_cirrho
+final_cirrho <- final_cirrho %>%
+  left_join(hbs_min_during_study %>% select(patid, anaemia_study), by = "patid")
+
+# Merge ltmcs_group column into final_cirrho
+final_cirrho <- final_cirrho %>%
+  left_join(ltmcs_2 %>% select(patid, ltmcs_group_2), by = "patid")
+
+# Merge mcv min group into final cirrho
+final_cirrho <- final_cirrho %>%
+  left_join(mcv_min_during_study %>% select(patid, mcv_min_group), by = "patid")
+
+# Summarise ynferritin by patid in ferritin_during_study
+ferritin_summary <- ferritin_during_study %>%
+  group_by(patid) %>%
+  summarise(
+    ynferritin = max(ynferritin, na.rm = TRUE), # Ensures 1 if any non-zero Ferritin_value 
+    num_ferritin_tests = n()  # Count occurrences per patient
+  )
+
+# Merge ynferritin into final_cirrho, keeping all patids 
+final_cirrho <- final_cirrho %>%
+  left_join(ferritin_summary, by = "patid") %>%
+  mutate(ynferritin = if_else(is.na(ynferritin), 0, ynferritin))  # ensure NAs are 0
+
+summary(final_cirrho$num_ferritin_tests)
+
+# Convert nas to 0 for num_ferritin_tests
+final_cirrho <- final_cirrho %>%
+  mutate(num_ferritin_tests = coalesce(num_ferritin_tests, 0))
+
+# Summarise ynoraliron by patid in Oral_iron_during_study
+oral_iron_summary <- Oral_Iron_during_study %>%
+  group_by(patid) %>%
+  summarise(ynoraliron = max(ynoraliron, na.rm = TRUE)) # Ensures 1 if any non-zero oral iron value
+
+# Merge ynoraliron into final_cirrho, keeping all patids 
+final_cirrho <- final_cirrho %>%
+  left_join(oral_iron_summary, by = "patid") %>%
+  mutate(ynoraliron = if_else(is.na(ynoraliron), 0, ynoraliron))  # ensure NAs are 0
+
+# Summarise yn_Hb_fer_90d by patid in Hb_fer_90d
+Hb_fer_90d_summary <- Hb_fer_90d %>%
+  group_by(patid) %>%
+  summarise(yn_Hb_fer_90d = max(yn_Hb_fer_90d, na.rm = TRUE)) # Ensures 1 if any non-zero Hb_fer_90 value
+
+# Merge yn_Hb_fer_90d into final_cirrho, keeping all patids 
+final_cirrho <- final_cirrho %>%
+  left_join(Hb_fer_90d_summary, by = "patid") %>%
+  mutate(yn_Hb_fer_90d = if_else(is.na(yn_Hb_fer_90d), 0, yn_Hb_fer_90d))  # ensure NAs are 0
+
+# Make no. ferritin tests group
+final_cirrho <- final_cirrho %>%
+  mutate(num_fer_group = case_when(
+    num_ferritin_tests == 0 ~ "0",
+    num_ferritin_tests == 1 ~ "1",
+    num_ferritin_tests == 2 ~ "2",
+    num_ferritin_tests >= 3 ~ "3+",
+    TRUE ~ NA_character_ # Handles missing or unexpected values
+  ))
+
+# Nadir ferritin result
+final_cirrho<- final_cirrho %>%
+  left_join(ferritin_during_study %>% select(patid, Ferritin_value, Ferritin_obsdate), by = 'patid') %>%
+  group_by(patid) %>%   # Group by patient ID
+  arrange(Ferritin_value, Ferritin_obsdate) %>%  # First, arrange by ferritin value and obsdate (earliest date for duplicates)
+  slice(1) %>% # Take earliest lowest result
+  ungroup() %>%
+  select(-Ferritin_obsdate) %>%
+  rename(ferritin_study_nadir = Ferritin_value)
+
+# Nadir ferritin group 
+final_cirrho <- final_cirrho %>%
+  mutate(
+    ferritin_category = case_when(
+      ynferritin == 0 ~ 'No ferritin',
+      ferritin_study_nadir < 30 ~ '<30',
+      ferritin_study_nadir >= 30 & ferritin_study_nadir < 50 ~ '30 - 49',
+      ferritin_study_nadir >= 50 & ferritin_study_nadir < 70 ~ '50 - 69',
+      ferritin_study_nadir >= 70 & ferritin_study_nadir < 100 ~ '70 - 99',
+      ferritin_study_nadir >= 100 ~ 'Ferritin >=100',
+      TRUE ~ 'Other'  # In case there are unexpected values
+    )
+  )
+
+# Merge imd with final cirrho
+final_cirrho <- final_cirrho %>%
+  left_join(imd_cohort %>% select(patid, e2019_imd_5), by = 'patid')
+
+final_cirrho <- final_cirrho %>%
+  mutate(e2019_imd_5 = if_else(is.na(e2019_imd_5), 'missing', as.character(e2019_imd_5)))
+table(final_cirrho$e2019_imd_5)
+
+# Add anaemia yn category
+final_cirrho <- final_cirrho %>%
+  mutate(
+    anaemia_status = case_when(
+      anaemia_study == 'No Anaemia' ~ 'No Anaemia',
+      TRUE ~ 'Anaemia'  # Combine all other levels into 'Anaemia'
+    ))
+
+# Make categorical variables factors
+final_cirrho <- final_cirrho %>%
+  mutate(across(c(gender, Age_group, ethnicity, aetiology_cirrhosis, type_cirrhosis, anaemia_index, anaemia_study, ynferritin, ferritin_category,  ynoraliron, yn_Hb_fer_90d, num_fer_group, UKELD_risk, e2019_imd_5, anaemia_status), as.factor)) 
+
+# Table one
+cat_vars <- c('gender','Age_group', 'ethnicity', 'e2019_imd_5', 'ltmcs_group_2', 'aetiology_cirrhosis', 'type_cirrhosis', 'UKELD_risk', 'anaemia_study','ynoraliron','num_fer_group')
+cont_vars <- c('Age_index_Hb','Index_Hb_gdL','length_of_follow_up_years','time_from_first_cirrhosis')
+
+# Change the order of factor levels in the 'group' variable
+final_cirrho$Age_group <- factor(final_cirrho$Age_group, levels = c("18-49", "50-64", "65-74",">=75"))
+final_cirrho$ethnicity <- factor(final_cirrho$ethnicity, levels = c('White or White British','Asian or Asian British','Black, Black British, Black Welsh, Caribbean or Africa','Mixed or Multiple ethnic groups','Not recorded','Other'))
+final_cirrho$type_cirrhosis <- factor(final_cirrho$type_cirrhosis, levels = c('alcohol', 'non-alcohol', 'unknown'))
+final_cirrho$aetiology_cirrhosis <- factor(final_cirrho$aetiology_cirrhosis, levels = c('alcohol', 'non-alcohol', 'unspecified'))
+final_cirrho$anaemia_index <- factor(final_cirrho$anaemia_index, levels = c("No Anaemia","Mild","Moderate","Severe"))
+final_cirrho$anaemia_study <- factor(final_cirrho$anaemia_study, levels = c("No Anaemia","Mild","Moderate","Severe"))
+final_cirrho$num_fer_group <- factor(final_cirrho$num_fer_group, levels = c("0","1","2","3+"))
+#final_cirrho$fib4_risk <- factor(final_cirrho$fib4_risk, levels = c('Low','Intermediate','High','FIB4 not scored'))
+final_cirrho$UKELD_risk <- factor(final_cirrho$UKELD_risk, levels = c('Low','High','UKELD not scored'))
+final_cirrho$e2019_imd_5 <- factor(final_cirrho$e2019_imd_5, levels = c('1','2','3','4','5','missing'))
+
+
+# Table One 1 - ferritin y/n strata ------------------------------------------------------------------------
+tableOne <- tableone::CreateTableOne(vars = c(cat_vars, cont_vars),
+                                     strata = 'ynferritin',
+                                     includeNA = F,
+                                     data = final_cirrho,
+                                     factorVar = cat_vars,
+                                     addOverall = F,
+                                     test = F
+)
+
+nonnormal <- c("length_of_follow_up_years",'time_from_first_cirrhosis')
+
+print(tableOne, nonnormal = nonnormal, showAllLevels = TRUE) 
+
+# Export table as word flextable
+
+# Convert TableOne object to a data frame
+table1_df <- print(tableOne, quote = FALSE, noSpaces = TRUE, varLabels = TRUE)
+
+# Add row names as a column
+table1_df <- cbind(Variable = rownames(table1_df), table1_df)
+rownames(table1_df) <- NULL  # Remove row names to avoid duplication
+
+# Create a flextable
+table1_flex <- qflextable(as.data.frame(table1_df))
+
+# Export to Word
+doc <- read_docx() %>%
+  body_add_flextable(table1_flex)
+
+#print(doc, target = "table1_20250716.docx")
+print(doc, target = "table1_20260107.docx")
+
+# ADDITIONAL 20250715 
+# Proportion within each ferritin group who received oral iron prescription
+
+iron_ferritin_groups <- final_cirrho %>%
+  group_by(ferritin_category) %>%
+  summarise(
+    oral_iron = sum(ynoraliron == 1, na.rm = TRUE),
+    total_in_group = n()
+  ) %>%
+  mutate(percentage_oral_iron = (oral_iron / total_in_group) * 100,
+         cum_count_oral_iron = cumsum(oral_iron),
+         cum_total = cumsum(total_in_group),
+         cum_percentage_oral_iron = (cum_count_oral_iron / cum_total) * 100
+  )
+
+print(iron_ferritin_groups)
+
+
+
+
+# Table One 2 - anaemia y/n strata ------------------------------------------------------------------
+
+# Variables to include
+cat_vars2 <- c('gender','Age_group', 'ethnicity', 'e2019_imd_5', 'aetiology_cirrhosis','type_cirrhosis','UKELD_risk','anaemia_study','ynferritin', 'ferritin_category', 'ynoraliron')
+cont_vars2 <- c('Age_index_Hb','Index_Hb_gdL','length_of_follow_up_years')
+
+
+tableOne_2 <- tableone::CreateTableOne(vars = c(cat_vars2, cont_vars2),
+                                     strata = 'anaemia_status',
+                                     includeNA = F,
+                                     data = final_cirrho,
+                                     factorVar = cat_vars,
+                                     addOverall = T,
+                                     test = F
+)
+
+#nonnormal <- c("num_ferritin_tests","time_from_first_cirrhosis")
+
+print(tableOne_2, nonnormal = nonnormal, showAllLevels = TRUE) 
+
+# Export table as word flextable
+
+# Convert TableOne 2 object to a data frame
+table2_df <- print(tableOne_2, quote = FALSE, noSpaces = TRUE, varLabels = TRUE)
+
+# Add row names as a column
+table2_df <- cbind(Variable = rownames(table2_df), table2_df)
+rownames(table2_df) <- NULL  # Remove row names to avoid duplication
+
+# Create a flextable
+table2_flex <- qflextable(as.data.frame(table2_df))
+
+# Export to Word
+doc2 <- read_docx() %>%
+  body_add_flextable(table2_flex)
+
+print(doc2, target = "table2.docx")
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# RESULTS 3A: ALLUVIAL PLOT for BURDEN OF IDA (all - incl those with fer in last 90d)
+
+# Create data frame with patid, anaemia status (y/n anaemia during study), ferritin (no ferritin or nadir ferritin within 90d of anaemic hb)
+# Initial columns patid, anaemia status, ferritin y (y=24,126), ferritin within 90d Hb(y=23,937), ferritin within 90d of anaemic HB y/n, ferritin <=15 etc 
+
+# Summarise ynanaemia_Hb_fer_90d by patid in Hb_fer_90d
+anaemia_Hb_fer_90d_summary <- Hb_fer_90d %>%
+  group_by(patid) %>%
+  summarise(ynanaemia_Hb_fer_90d = max(ynanaemia_Hb_fer_90d, na.rm = TRUE)) # Ensures 1 if any non-zero ynanaemia_Hb_fer_90 value
+
+# Merge ynanaemia_Hb_fer_90d into final_cirrho, keeping all patids 
+final_cirrho <- final_cirrho %>%
+  left_join(anaemia_Hb_fer_90d_summary, by = "patid") %>%
+  mutate(ynanaemia_Hb_fer_90d = if_else(is.na(ynanaemia_Hb_fer_90d), 0, ynanaemia_Hb_fer_90d))  # ensure NAs are 0
+
+# Check no. patients who have anaemic Hb within 90d of ferritin
+final_cirrho %>%
+  group_by(ynanaemia_Hb_fer_90d) %>%
+  summarise(n_distinct(patid)) # n = 14560 (of 16 299 patients who had anaemia and a ferritin test)
+
+# Patients who received a ferritin test whilst anaemic (within 90d)
+# For each patient, select lowest ferritin from results of fer within 90d anaemic Hb 
+anaemia_Hb_fer_90d_nadir <- Hb_fer_90d %>%
+  filter(ynanaemia_Hb_fer_90d == 1) %>%   # Filter for patients with anaemia and ferritin within 90 days
+  group_by(patid) %>%   # Group by patient ID
+  arrange(Ferritin_value, Ferritin_obsdate) %>%  # First, arrange by ferritin value and obsdate (earliest date for duplicates)
+  slice(1) %>% # Take earliest lowest result
+  ungroup()
+
+# Now can create new data frame with patid, anaemia status (y/n anaemia during study), ferritin (no ferritin or nadir ferritin within 90d of anaemic hb)
+# Initial columns patid, anaemia status, ferritin y (y=24,126), ferritin within 90d Hb(y=23,937), ferritin within 90d of anaemic HB y/n, ferritin <=15 etc 
+
+Burden_IDA <- final_cirrho %>%
+  select(patid,anaemia_study,ynferritin,ynanaemia_Hb_fer_90d) 
+
+# Merge nadir ferritin when fer within 90d of anaemic Hb
+Burden_IDA <- Burden_IDA %>%
+  left_join(anaemia_Hb_fer_90d_nadir %>% select(patid, Ferritin_value), by = 'patid')
+
+
+Burden_IDA_summary <- Burden_IDA %>%
+  summarise(
+    total_patients = n(),
+    anaemia_count = sum(anaemia_study == 'Mild' | anaemia_study == 'Moderate' | anaemia_study == 'Severe', na.rm = TRUE),
+    ferritin_test = sum(ynferritin == 1, na.rm = TRUE),
+    anaemia_ferritin_90d_count = sum(ynanaemia_Hb_fer_90d == 1, na.rm = TRUE),
+    nadir_ferritin_count = sum(Ferritin_value != 0, na.rm = TRUE)
+  )
+
+# Data preparation for alluvial plot
+
+# Prepare the categories
+Burden_IDA <- Burden_IDA %>%
+  mutate(
+    anaemia_status = case_when(
+      anaemia_study == 'No Anaemia' ~ 'No Anaemia',
+      TRUE ~ 'Anaemia'  # Combine all other levels into 'Anaemia'
+    ),
+    ferritin_category = case_when(
+      ynferritin == 0 ~ 'No ferritin',
+      ynanaemia_Hb_fer_90d == 0 & ynferritin == 1 ~ 'Ferritin not within 90 days of low Hb',
+      Ferritin_value < 30 ~ '<30',
+      Ferritin_value >= 30 & Ferritin_value < 50 ~ '30 - 49',
+      Ferritin_value >= 50 & Ferritin_value < 70 ~ '50 - 69',
+      Ferritin_value >= 70 & Ferritin_value < 100 ~ '70 - 99',
+      Ferritin_value >= 100 ~ '>=100',
+      TRUE ~ 'Other'  # In case there are unexpected values
+    )
+  )
+
+# >>>>> View the summary of the new categories
+table(Burden_IDA$anaemia_status, Burden_IDA$ferritin_category)
+
+# Drop unnecessary columns
+Burden_IDA_long <- Burden_IDA %>%
+  select(patid, anaemia_status, ferritin_category)
+
+# Aggregate data
+Burden_IDA_aggregated <- Burden_IDA_long %>%
+  group_by(anaemia_status, ferritin_category) %>%
+  summarise(count = n())
+
+# Re-order factors
+Burden_IDA_aggregated <- Burden_IDA_aggregated %>%
+  mutate(
+    anaemia_status = factor(anaemia_status, levels = c('No Anaemia', 'Anaemia')),
+    ferritin_category = factor(ferritin_category, levels = c(
+      'No ferritin',
+      'Ferritin not within 90 days of low Hb',
+      '>=100',
+      '70 - 99',
+      '50 - 69',
+      '30 - 49',
+      '<30'
+    ))
+  )
+
+alluvial_plot <- ggplot(Burden_IDA_aggregated,
+                        aes(axis1 = anaemia_status, axis2 = ferritin_category, y = count)) +
+  geom_alluvium(aes(fill = anaemia_status), width = 1/6, color = "black") +
+  geom_stratum(width = 1/4, fill = "white", color = "grey") +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 2) +  # Adjust font size
+  scale_x_discrete(limits = c("Anaemia Status", "Ferritin Category"), expand = c(0.15, 0.05)) +
+  scale_fill_manual(values = c('No Anaemia' = 'gray', 'Anaemia' = 'red')) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major gridlines
+    panel.grid.minor = element_blank(),  # Remove minor gridlines
+    #axis.text = element_blank(),         # Remove axis text
+    #axis.title = element_blank(),        # Remove axis titles
+    axis.ticks = element_blank(),         # Remove axis ticks
+    plot.title = element_text(size = 10, face = "bold"),  # Change title font size and style
+    legend.title = element_text(size = 8),              # Change legend title font size
+    legend.text = element_text(size = 8)
+  ) +
+  labs(title = 'Burden of Iron Deficiency Anaemia')
+
+print(alluvial_plot)
+
+# --------------------------------------------------------------------------------------------------------
+
+# RESULTS 3B: ALLUVIAL PLOT for BURDEN OF ANAEMIA AND LOW IRON (plus proportions NAID and IDA)
+
+# Create data frame with patid, anaemia status (y/n anaemia during study), ferritin (no ferritin or nadir ferritin)
+# Initial columns patid, anaemia status, nadir ferritin group
+
+# For each patient, select lowest ferritin from all results during study
+fer_nadir <- ferritin_during_study %>%
+  group_by(patid) %>%   # Group by patient ID
+  arrange(Ferritin_value, Ferritin_obsdate) %>%  # First, arrange by ferritin value and obsdate (earliest date for duplicates)
+  slice(1) %>% # Take earliest lowest result
+  ungroup()
+
+# Now can create new data frame with patid, anaemia status (y/n anaemia during study), ferritin (no ferritin or nadir ferritin)
+# Initial columns patid, anaemia status, ferritin y (y=23,495)
+
+burden_anaemia_ferritin <- final_cirrho %>%
+  select(patid,anaemia_study,ynferritin) 
+
+# Merge nadir ferritin
+burden_anaemia_ferritin <- burden_anaemia_ferritin %>%
+  left_join(fer_nadir %>% select(patid, Ferritin_value), by = 'patid')
+
+# Summary
+burden_anaemia_ferritin_summary <-burden_anaemia_ferritin %>%
+  summarise(
+    total_patients = n(),
+    anaemia_count = sum(anaemia_study == 'Mild' | anaemia_study == 'Moderate' | anaemia_study == 'Severe', na.rm = TRUE),
+    ferritin_test = sum(ynferritin == 1, na.rm = TRUE),
+    nadir_ferritin_count = sum(Ferritin_value != 0, na.rm = TRUE)
+  )
+
+
+# Ferritin categories
+burden_anaemia_ferritin <- burden_anaemia_ferritin %>%
+  mutate(
+    anaemia_status = case_when(
+      anaemia_study == 'No Anaemia' ~ 'No Anaemia',
+      TRUE ~ 'Anaemia'  # Combine all other levels into 'Anaemia'
+    ),
+    ferritin_category = case_when(
+      ynferritin == 0 ~ 'No ferritin',
+      Ferritin_value < 30 ~ '<30',
+      Ferritin_value >= 30 & Ferritin_value < 50 ~ '30 - 49',
+      Ferritin_value >= 50 & Ferritin_value < 70 ~ '50 - 69',
+      Ferritin_value >= 70 & Ferritin_value < 100 ~ '70 - 99',
+      Ferritin_value >= 100 ~ '>=100',
+      TRUE ~ 'Other'  # In case there are unexpected values
+    )
+  )
+
+
+# >>>>> View the summary of the new categories
+table(burden_anaemia_ferritin$anaemia_status, burden_anaemia_ferritin$ferritin_category)
+
+# Drop unnecessary columns
+burden_anaemia_ferritin_long <- burden_anaemia_ferritin %>%
+  select(patid, anaemia_status, ferritin_category)
+
+# Aggregate data
+burden_anaemia_ferritin_aggregated <- burden_anaemia_ferritin_long %>%
+  group_by(anaemia_status, ferritin_category) %>%
+  summarise(count = n())
+
+# Re-order factors
+burden_anaemia_ferritin_aggregated <- burden_anaemia_ferritin_aggregated %>%
+  mutate(
+    anaemia_status = factor(anaemia_status, levels = c('No Anaemia', 'Anaemia')),
+    ferritin_category = factor(ferritin_category, levels = c(
+      '<30',
+      '30 - 49',
+      '50 - 69',
+      '70 - 99',
+      '>=100',
+      'No ferritin'
+    ))
+  )
+
+# Draw alluvial plot
+
+install.packages("ggalluvial")
+library(ggalluvial)
+
+alluvial_plot_2 <- ggplot(burden_anaemia_ferritin_aggregated,
+                        aes(axis1 = anaemia_status, axis2 = ferritin_category, y = count)) +
+  geom_alluvium(aes(fill = anaemia_status), width = 0.25, color = "black", linewidth = 0.5) +
+  geom_stratum(width = 0.2, fill = "white", color = "black", linewidth = 0.4) +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 2.8) +  # Adjust font size
+  scale_x_discrete(limits = c("Anaemia Status", "Ferritin (ug/L)"), expand = c(0.02, 0.01)) +
+  scale_fill_manual(values = c('No Anaemia' = 'lightblue', 'Anaemia' = 'red')) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major gridlines
+    panel.grid.minor = element_blank(),  # Remove minor gridlines
+    #axis.text = element_blank(),         # Remove axis text
+    axis.title = element_blank(),        # Remove axis titles
+    axis.ticks = element_blank(),         # Remove axis ticks
+    plot.title = element_text(size = 10, face = "bold"),  # Change title font size and style
+    legend.position = "none"
+  ) +
+  labs(title = 'Anaemia and Ferritin During Study', size = 1)
+
+print(alluvial_plot_2)
+
+
+# Ferritin tests and anemia during study
+
+alluvial_plot_3 <- ggplot(burden_anaemia_ferritin_aggregated,
+                          aes(axis1 = ferritin_category, axis2 = anaemia_status, y = count)) +
+  geom_alluvium(aes(fill = anaemia_status), width = 0.25, color = "black", linewidth = 0.5) +
+  geom_stratum(width = 0.2, fill = "white", color = "black", linewidth = 0.4) +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 2.8) +
+  scale_x_discrete(limits = c("Ferritin (ug/L)", "Anaemia Status"), expand = c(0.02, 0.01)) +
+  scale_fill_manual(values = c('No Anaemia' = 'lightblue', 'Anaemia' = 'red')) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = 10),  # y-axis label size
+    axis.ticks = element_blank(),
+    plot.title = element_text(size = 10, face = "bold"),
+    legend.position = "none"
+  ) +
+  labs(title = 'Ferritin and Anaemia During Study', y = "Number of patients")
+
+
+print(alluvial_plot_3)
+
+# FERRITIN TESTING IN ANAEMIC PATIENTS ONLY
+
+# Aggregate data
+Burden_IDA2_aggregated <- Burden_IDA_long %>%
+  filter(anaemia_status == 'Anaemia') %>%
+  group_by(anaemia_status, ferritin_category) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  mutate(
+    total = sum(count),
+    percent = round((count / total) * 100, 1)
+  )
+
+# Reorder factor levels 
+Burden_IDA_long <- Burden_IDA_long %>%
+  mutate(
+    ferritin_category = factor(ferritin_category, levels = c(
+      '<30',
+      '30 - 49',
+      '50 - 69',
+      '70 - 99',
+      '>=100',
+      'Ferritin not within 90 days of low Hb',
+      'No ferritin'
+    ))
+  )
+
+# Filter for anaemic patients only
+Burden_IDA2_long <- Burden_IDA_long %>%
+  filter(anaemia_status == 'Anaemia')
+
+# Stacked bar chart for timely ferritin results in patients with anaemia
+
+
+ggplot(Burden_IDA2_long, aes(x = "Ferritin whilst anaemic", fill = ferritin_category)) +
+  geom_bar(position = "fill", color = "black") +  # black border added here
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c(
+      "<30" = "#de2d26",
+      "30 - 49" = "#fb6a4a",
+      "50 - 69" = "#fc9272",
+      "70 - 99" = "#fcbba1",
+      ">=100" = "#fee0d2",
+      "Ferritin not within 90 days of low Hb" = "#bdbdbd",
+      "No ferritin" = "#737373"
+    )
+  ) +
+  labs(x = "", y = "Proportion", fill = "Ferritin") +
+  theme_minimal()
+
+
+
+# -------------------------------------------------------------------------------------------------------------
+# RESULTS 4: Kaplan-Meier plot of time to ferritin test within 90d Hb
+
+# To demonstrate testing which allows detection of IDA 
+
+# Need patid, date of index Hb, fer within 90d Hb yn, earliest fer within 90d hb, endoffollowup
+time_to_ferritin <- demographics %>%
+  select(patid, Index_FirstHb_date, EndOfFUPeriod)
+
+# Merge earliest ferritin obs date per patient from all ferritin within 90d of Hb results (Hb_fer_90d)
+time_to_ferritin <- time_to_ferritin %>%
+  left_join(Hb_fer_90d %>% select(patid, Ferritin_obsdate, yn_Hb_fer_90d), by = 'patid') %>%
+  # Group by patient, arrange by Ferritin_obsdate, then take the earliest
+  group_by(patid) %>%
+  arrange(Ferritin_obsdate) %>%  # Sort by ferritin obsdate
+  slice(1) %>%  # Select the first row (earliest)
+  ungroup()  
+
+
+# Prepare the dataset for time to ferritin test
+time_to_ferritin_data <- time_to_ferritin %>% 
+  mutate(
+    # Calculate time-to-test (in days)
+    time_to_ferritin = case_when(
+      !is.na(yn_Hb_fer_90d) & yn_Hb_fer_90d == 1 ~ as.numeric(difftime(Ferritin_obsdate, Index_FirstHb_date, units = "days")),
+      TRUE ~ as.numeric(difftime(EndOfFUPeriod, Index_FirstHb_date, units = "days"))  # Censored cases (no test)
+    ),
+    
+    # Ensure time_to_ferritin is non-negative if an event occurred
+    time_to_ferritin = ifelse(yn_Hb_fer_90d == 1 & time_to_ferritin < 0, 0, time_to_ferritin),
+    
+    # Create test indicator (1 = had a ferritin test, 0 = no test)
+    ferritin_tested = ifelse(yn_Hb_fer_90d == 1, 1, 0)
+  ) %>%
+  
+    # Replace NAs with 0
+  replace_na(list(ferritin_tested = 0)) %>%
+  select(patid, time_to_ferritin, ferritin_tested)
+
+# Check the summary
+summary(time_to_ferritin_data)
+hist(time_to_ferritin_data$time_to_ferritin)
+
+
+# Number of patients who had ferritin test within 12 months (n= 17037)
+time_to_ferritin_aggregated <- time_to_ferritin_data %>%
+  filter(ferritin_tested == 1 & time_to_ferritin <336 ) %>%
+  summarise(count = n())
+
+
+# Create a survival-like object
+time_to_ferritin_obj <- Surv(time = time_to_ferritin_data$time_to_ferritin, 
+                             event = time_to_ferritin_data$ferritin_tested)
+
+# Fit the Kaplan-Meier curve (interpreted as time to ferritin test)
+km_time_to_ferritin <- survfit(time_to_ferritin_obj ~ 1, data = time_to_ferritin_data)
+
+# Extract survival probabilities and corresponding times
+km_df <- data.frame(time = km_time_to_ferritin$time, no_ferritin = km_time_to_ferritin$surv)
+
+# Find the time closest to 50% of patients still without a ferritin test
+time_50 <- km_df$time[which.min(abs(km_df$no_ferritin - 0.5))]
+
+# Find the proportion without a ferritin test at 6 months (180 days)
+no_ferritin_6m <- km_df$no_ferritin[which.min(abs(km_df$time - 180))]
+
+# Find the proportion without a ferritin test at 12 months (365 days)
+no_ferritin_12m <- km_df$no_ferritin[which.min(abs(km_df$time - 365))]
+
+# Print results
+print(paste("Time at which 50% of patients still haven't had a ferritin test:", time_50, "days"))
+# 621
+print(paste("Proportion without ferritin test at 6 months:", round(no_ferritin_6m * 100, 1), "%"))
+# 64.2%
+print(paste("Proportion without ferritin test at 12 months:", round(no_ferritin_12m * 100, 1), "%"))
+# 57.3%
+
+# Generate Kaplan-Meier plot
+ggsurvplot_obj <- ggsurvplot(
+  km_time_to_ferritin, 
+  censor = FALSE,
+  conf.int = TRUE,  
+  risk.table = TRUE,  
+  xlab = "Days since Index First Hb", 
+  ylab = "Proportion without Ferritin Test",
+  title = "Time to First Ferritin Test within 90d of Hb",
+  palette = "black",
+  ggtheme = theme_minimal()
+)
+
+
+# Add annotation for 50% point and 12 months
+ggsurvplot_obj$plot <- ggsurvplot_obj$plot +
+  # 50% vertical line and label
+  geom_vline(xintercept = time_50, linetype = "dashed", color = "red") +
+  annotate("text",
+           x = time_50, y = 0.5,
+           label = paste("50% at", round(time_50), "days"),
+           vjust = +2, hjust = 1, color = "red", size = 3) +
+  # 12-month marker (vertical line, point, and label)
+  geom_vline(xintercept = 365, linetype = "dotted", color = "blue") +
+  annotate("point", x = 365, y = no_ferritin_12m, size = 2) +
+  annotate("text",
+           x = 365, y = no_ferritin_12m,
+           label = paste0(round(no_ferritin_12m * 100, 1), "% at 12 months"),
+           vjust = +2, hjust = 1, color = "blue", size = 3)
+
+
+# Print the updated plot
+print(ggsurvplot_obj)
+
+# NB warning due to expectant mapping to df but is OK
+
+
+# REPEAT IN SUBGROUP 
+# Exclude patients who had a ferritin test within 3m (roughly 90d) prior to Index Hb (NB 3m prior to index Hb is startoffudate)
+
+fer_prior_index_90 <- ferritin_during_study %>%
+  left_join(demographics %>% select(patid, Index_FirstHb_date), by = "patid") %>% # Merge all Index Hb dates for each patient
+  filter(Ferritin_obsdate < Index_FirstHb_date) %>% # Filter those who had a ferritin in the data prior to index Hb (extract is ~ 90d prior)
+  distinct(patid) # n = 2645
+
+time_to_ferritin_data_subgroup <- time_to_ferritin_data %>%
+  anti_join(fer_prior_index_90, by = "patid") %>% # Keep only those NOT in fer_prior_index_90
+  select('patid', time_to_ferritin, ferritin_tested)
+
+rm(fer_prior_index_90) # Remove df with patients who had ferritin within 90d prior to index Hb
+
+# Create a survival-like object
+time_to_ferritin_obj_subgroup <- Surv(time = time_to_ferritin_data_subgroup$time_to_ferritin, 
+                             event = time_to_ferritin_data_subgroup$ferritin_tested)
+
+# Fit the Kaplan-Meier curve (interpreted as time to ferritin test)
+km_time_to_ferritin_subgroup <- survfit(time_to_ferritin_obj_subgroup ~ 1, data = time_to_ferritin_data_subgroup)
+
+# Extract survival probabilities and corresponding times
+km_df_subgroup <- data.frame(time = km_time_to_ferritin_subgroup$time, no_ferritin = km_time_to_ferritin_subgroup$surv)
+
+# Find the time closest to 50% of patients still without a ferritin test
+time_50_subgroup <- km_df_subgroup$time[which.min(abs(km_df_subgroup$no_ferritin - 0.5))]
+
+# Find the proportion without a ferritin test at 6 months (180 days)
+no_ferritin_subgroup_6m <- km_df_subgroup$no_ferritin[which.min(abs(km_df$time - 180))]
+
+# Find the proportion without a ferritin test at 12 months (365 days)
+no_ferritin_subgroup_12m <- km_df_subgroup$no_ferritin[which.min(abs(km_df$time - 365))]
+
+# Print results
+print(paste("Time at which 50% of patients still haven't had a ferritin test:", time_50_subgroup, "days"))
+# 745
+print(paste("Proportion without ferritin test at 6 months:", round(no_ferritin_subgroup_6m * 100, 1), "%"))
+# 68.4%
+print(paste("Proportion without ferritin test at 12 months:", round(no_ferritin_subgroup_12m * 100, 1), "%"))
+# 61.0%
+
+# Generate Kaplan-Meier plot
+ggsurvplot_obj_subgroup <- ggsurvplot(
+  km_time_to_ferritin_subgroup, 
+  censor = FALSE,
+  conf.int = TRUE,  
+  risk.table = TRUE,  
+  xlab = "Days since Index First Hb", 
+  ylab = "Proportion without Ferritin Test",
+  title = "Time to First Ferritin Test Subgroup",
+  palette = "black",
+  ggtheme = theme_minimal()
+)
+
+
+# Add annotation for 50% point and 12 months
+ggsurvplot_obj_subgroup$plot <- ggsurvplot_obj_subgroup$plot +
+  # 50% vertical line and label
+  geom_vline(xintercept = time_50_subgroup, linetype = "dashed", color = "red") +
+  annotate("text",
+           x = time_50_subgroup, y = 0.5,
+           label = paste("50% at", round(time_50_subgroup), "days"),
+           vjust = +2, hjust = 1, color = "red", size = 3) +
+  # 12-month marker (vertical line, point, and label)
+  geom_vline(xintercept = 365, linetype = "dotted", color = "blue") +
+  annotate("point", x = 365, y = no_ferritin_subgroup_12m, size = 2) +
+  annotate("text",
+           x = 365, y = no_ferritin_subgroup_12m,
+           label = paste0(round(no_ferritin_subgroup_12m * 100, 1), "% at 12 months"),
+           vjust = +2, hjust = 1, color = "blue", size = 3)
+
+
+# Print the updated plot
+print(ggsurvplot_obj_subgroup)
+
+#rm(ggsurvplot_obj_subgroup)
+
+
+# -----------------------------------------------------------------------------------------------------
+# RESULTS 5: Time-to-event analysis for first detected IDA
+
+# Reconstruct data set with all Hb-ferritin pairs within 90d, ready to extract closest Hb to each ferritin, determine if any fulfill IDA and earliest IDA event at each threshold
+# Ferritin within 90d Hb y/n
+Hb_fer_90d2 <- hbs_during_study %>%
+  inner_join(ferritin_during_study, by = "patid") %>%
+  mutate(date_diff = abs(as.numeric(Hb_obsdate - Ferritin_obsdate))) %>%
+  filter(date_diff <= 90) 
+
+Hb_fer_90d2 %>%
+  summarise(n_distinct(patid))                  # n = 23,319
+
+#Hb_fer_90d2 <- Hb_fer_90d2 %>%
+#  mutate(yn_Hb_fer_90d = 1)
+
+# Merge gender column into Hb_fer_90d
+Hb_fer_90d2 <- Hb_fer_90d2 %>%
+  left_join(demographics %>% select(patid, gender), by = "patid")
+
+# Add columns
+# Anaemia (severity)
+Hb_fer_90d2 <- Hb_fer_90d2 %>%
+  mutate(
+    anaemia_Hb_fer_90d = case_when(
+      # Men
+      gender == 'M' & Hb_value_gdL >= 110 & Hb_value_gdL < 130 ~ 'Mild',
+      gender == 'M' & Hb_value_gdL >= 80 & Hb_value_gdL < 110 ~ 'Moderate',      
+      gender == 'M' & Hb_value_gdL < 80 ~ 'Severe',
+      
+      # Females
+      gender == 'F' & Hb_value_gdL >= 110 & Hb_value_gdL < 120 ~ 'Mild',
+      gender == 'F' & Hb_value_gdL >= 80 & Hb_value_gdL < 110 ~ 'Moderate',      
+      gender == 'F' & Hb_value_gdL < 80 ~ 'Severe',
+      
+      # Default "No anaemia" if Hb doesn't meet any criteria
+      TRUE ~ "No Anaemia"
+    )
+  )
+table(Hb_fer_90d2$anaemia_Hb_fer_90d)
+
+# Anaemia yn
+
+Hb_fer_90d2 <- Hb_fer_90d2 %>%
+  mutate(
+    ynanaemia_Hb_fer_90d = case_when(
+      # Men
+      gender == 'M' & Hb_value_gdL < 130 ~ 1,
+      
+      # Females
+      gender == 'F' & Hb_value_gdL < 120 ~ 1,
+      
+      # Default "No anaemia" if Hb doesn't meet any criteria
+      TRUE ~ 0
+    )
+  )
+
+table(Hb_fer_90d2$ynanaemia_Hb_fer_90d)
+
+Hb_fer_90d2 %>%
+  filter(ynanaemia_Hb_fer_90d == 1) %>%
+  summarise(n_distinct(patid))  # n = 14,560
+
+# Anaemia and fer <100 yn (potentially IDA IF closest pair)
+
+Hb_fer_90d2 <- Hb_fer_90d2 %>%
+  mutate(
+    ynanaemia_fer_less100 = case_when(
+      ynanaemia_Hb_fer_90d == 1 & Ferritin_value < 100 ~ 1,
+      
+      # Default "No" if Hb and ferritin don't meet criteria
+      TRUE ~ 0
+    )
+  )
+
+# Anaemia and fer <30 yn (potentially IDA IF closest pair)
+
+Hb_fer_90d2 <- Hb_fer_90d2 %>%
+  mutate(
+    ynanaemia_fer_less30 = case_when(
+      ynanaemia_Hb_fer_90d == 1 & Ferritin_value < 30 ~ 1,
+      
+      # Default "No" if Hb and ferritin don't meet criteria
+      TRUE ~ 0
+    )
+  )
+
+## SENSITVITY: INCIDENCE OF IDA
+# Need patid, Index Hb date, 'BEST' HB TO EACH FERRITIN (closest, if ties the one which fulfills ida or anaemia)
+
+# Best Hb for each ferritin obsdate per patid
+Hb_fer_best_per_ferritin <- Hb_fer_90d2 %>%
+  group_by(patid, Ferritin_obsdate) %>%
+  arrange(
+    date_diff,                    # closest Hb to this ferritin
+    Hb_value_gdL                  # if ties, lowest Hb
+  ) %>%
+  slice(1) %>%
+  ungroup()
+
+# No. patients where 'best' Hb (closest, anaemic and low fer if present) is anaemic for at least one of their ferritin measurements
+Hb_fer_best_per_ferritin %>%
+  filter(ynanaemia_Hb_fer_90d == 1) %>%
+  summarise(n_distinct(patid))   # n = 13,712 (ie of 14,560 anaemic patients who did have ferritin within 90d, in 13,712 an anaemic hb result was the closest to a ferritin)
+# NB 848 patients with anaemia and a ferritin within 90d, had a non-anaemic Hb closer to every ferritin
+
+# No. patients where 'best' Hb is anaemic AND ferritin measurement is <100 for atleast one of their ferritin measurements
+Hb_fer_best_per_ferritin %>%
+  filter(ynanaemia_fer_less100 == 1) %>%
+  summarise(n_distinct(patid))   # n = 8,811
+
+# No. patients where 'best' Hb is anaemic AND ferritin measurement is <30 for atleast one of their ferritin measurements
+Hb_fer_best_per_ferritin %>%
+  filter(ynanaemia_fer_less30 == 1) %>%
+  summarise(n_distinct(patid))   # n = 5,311
+
+Hb_fer_best_per_ferritin %>%
+  summarise(n_distinct(patid))                  # n = 23,319
+
+# Need patid, Index Hb date, date of lowest fer within 90d of anaemic Hb (date of IDA), value of lowest fer within 90d anaemic Hb yn, endoffollowup
+#time_to_IDA <- demographics %>%
+ # select(patid, Index_FirstHb_date, EndOfFUPeriod)
+
+# Merge earliest IDA obs date per patient from all ferritin within 90d of anaemic Hb results (anaemia_Hb_fer_90d_nadir)
+#time_to_IDA <- time_to_IDA %>%
+ # left_join(anaemia_Hb_fer_90d_nadir %>% select(patid, Ferritin_obsdate, Ferritin_value), by = 'patid')
+
+# Need patid, index Hb data, end of fu, all ferritin dates and values per patid that fulfill IDA 
+Hb_fer_90d2_IDA <- Hb_fer_best_per_ferritin %>%
+  filter(ynanaemia_fer_less100 == 1) 
+
+Hb_fer_90d2_IDA %>%
+  summarise(n_distinct(patid))                  # n = 8,811
+
+# Date of fer within 90d of Hb (date of IDA), value of fer within 90d anaemic Hb yn, endoffollowup
+time_to_IDA_sens <- demographics %>%
+  select(patid, Index_FirstHb_date, EndOfFUPeriod)
+
+# Merge all IDA obs dates per patient from all IDA results (Hb_fer_90d2_IDA), anchor diagnosis on ferritin date
+time_to_IDA_sens <- time_to_IDA_sens %>%
+  left_join(Hb_fer_90d2_IDA %>% select(patid, Ferritin_obsdate, Ferritin_value), by = 'patid')
+
+# Rename time_to_IDA_sens to time_to_IDA
+time_to_IDA <- time_to_IDA_sens
+
+# IDA 30: Prepare the dataset for time to IDA_30
+time_to_IDA_30 <- time_to_IDA %>% 
+  mutate(
+    # Calculate time-to-IDA30 (in days)
+    time_to_IDA_30 = case_when(
+      !is.na(Ferritin_value) & Ferritin_value < 30 ~ as.numeric(difftime(Ferritin_obsdate, Index_FirstHb_date, units = "days")),
+      TRUE ~ as.numeric(difftime(EndOfFUPeriod, Index_FirstHb_date, units = "days"))  # Censored cases (no test)
+    ),
+    
+    # Create test indicator (1 = had a ferritin test <30, 0 = no ferritin <30)
+    IDA_30 = ifelse(Ferritin_value < 30, 1, 0)
+  ) %>%
+  
+  # Replace NAs with 0
+  replace_na(list(IDA_30 = 0)) %>%
+  select(patid, time_to_IDA_30, IDA_30)
+
+# Check the summary
+summary(time_to_IDA_30)
+time_to_IDA_30 %>%
+  filter(IDA_30 ==1) %>%
+  summarise(n_distinct(patid)) # n = 5603 (now 5451 09/05/2025) (as expected from alluvial plot)
+
+# Exclude patients who had a ferritin result <30 within 90d prior to Index Hb
+
+fer_30_prior_index_90 <- ferritin_during_study %>%
+  left_join(demographics %>% select(patid, Index_FirstHb_date), by = "patid") %>% # Merge all Index Hb dates for each patient
+  filter(Ferritin_obsdate >= (Index_FirstHb_date - 90) & Ferritin_obsdate < Index_FirstHb_date & Ferritin_value <30) %>% # Filter those who had a ferritin <30 within 90 days prior to index Hb
+  distinct(patid) # n = 598
+
+time_to_IDA_30_atrisk <- time_to_IDA_30 %>%
+  anti_join(fer_30_prior_index_90, by = "patid") # Keep only those NOT in d.f of pt. with fer <30 within 90d of index Hb
+
+rm(fer_30_prior_index_90) # Remove df with patients who had ferritin within 90d prior to Hb
+
+# Create a survival-like object
+#time_to_IDA_30_obj <- Surv(time = time_to_IDA_30_atrisk$time_to_IDA_30, 
+#                                      event = time_to_IDA_30_atrisk$IDA_30)
+
+# Fit the Kaplan-Meier curve (interpreted as time to ferritin test)
+#km_time_to_IDA_30 <- survfit(time_to_IDA_30_obj ~ 1, data = time_to_IDA_30_atrisk)
+
+# Extract survival probabilities and corresponding times
+#km_df_IDA_30 <- data.frame(time = km_time_to_IDA_30$time, no_IDA_30 = km_time_to_IDA_30$surv)
+
+# Generate Kaplan-Meier plot
+#ggsurvplot_obj_IDA_30 <- ggsurvplot(
+#  km_time_to_IDA_30, 
+#  conf.int = TRUE,  
+#  risk.table = TRUE,  
+#  xlab = "Days since Index First Hb", 
+#  ylab = "Proportion without IDA",
+#  title = "Time to IDA ferritin <30",
+#  palette = "blue",
+#  ggtheme = theme_minimal()
+#)
+
+# Print the updated plot
+#print(ggsurvplot_obj_IDA_30)
+
+# >>>>>>> Calculate incidence rate of detected IDA per 100 patient years
+total_IDA_30_events <- sum(time_to_IDA_30_atrisk$IDA_30, na.rm = TRUE)
+total_IDA_30_followup_time <- sum(time_to_IDA_30_atrisk$time_to_IDA_30, na.rm = TRUE) / 365.25  # Convert days to years
+
+incidence_rate_IDA_30 <- (total_IDA_30_events / total_IDA_30_followup_time) * 100  # per 100 patient-years
+
+print(paste("Incidence rate of detected IDA:", round(incidence_rate_IDA_30, 2), "per 100 patient-years"))
+
+# Poisson approximation 95% CI (as large counts)
+IDA_30_rate_ci_lower <- (qpois(0.025, total_IDA_30_events) / total_IDA_30_followup_time)*100
+IDA_30_rate_ci_upper <- (qpois(0.975, total_IDA_30_events) / total_IDA_30_followup_time)*100
+
+# Print results
+cat("Incidence Rate:", round(incidence_rate_IDA_30, 5), "per person-year\n")
+cat("95% CI:", round(IDA_30_rate_ci_lower, 5), "-", round(IDA_30_rate_ci_upper, 5), "per person-year\n")
+
+
+# IDA 50: Prepare the dataset for time to IDA_50
+time_to_IDA_50 <- time_to_IDA %>% 
+  mutate(
+    # Calculate time-to-IDA50 (in days)
+    time_to_IDA_50 = case_when(
+      !is.na(Ferritin_value) & Ferritin_value < 50 ~ as.numeric(difftime(Ferritin_obsdate, Index_FirstHb_date, units = "days")),
+      TRUE ~ as.numeric(difftime(EndOfFUPeriod, Index_FirstHb_date, units = "days"))  # Censored cases (no test)
+    ),
+    
+    # Create test indicator (1 = had a ferritin test <50, 0 = no ferritin <50)
+    IDA_50 = ifelse(Ferritin_value < 50, 1, 0)
+  ) %>%
+  
+  # Replace NAs with 0
+  replace_na(list(IDA_50 = 0)) %>%
+  select(patid, time_to_IDA_50, IDA_50)
+
+# Check the summary
+summary(time_to_IDA_50)
+time_to_IDA_50 %>%
+  filter(IDA_50 ==1) %>%
+  summarise(n_distinct(patid)) # n = 7147 (as expected from alluvial plot)
+
+# Exclude patients who had a ferritin result <50 within 90d prior to Index Hb
+
+fer_50_prior_index_90 <- ferritin_during_study %>%
+  left_join(demographics %>% select(patid, Index_FirstHb_date), by = "patid") %>% # Merge all Index Hb dates for each patient
+  filter(Ferritin_obsdate >= (Index_FirstHb_date - 90) & Ferritin_obsdate < Index_FirstHb_date & Ferritin_value <50) %>% # Filter those who had a ferritin <50 within 90 days prior to index Hb
+  distinct(patid) # n = 898
+
+time_to_IDA_50_atrisk <- time_to_IDA_50 %>%
+  anti_join(fer_50_prior_index_90, by = "patid") # Keep only those NOT in d.f of pt. with fer <50 within 90d of index Hb
+
+rm(fer_50_prior_index_90) # Remove df with patients who had ferritin within 90d prior to Hb
+
+
+# Calculate incidence rate of detected IDA per 100 patient years
+total_IDA_50_events <- sum(time_to_IDA_50_atrisk$IDA_50, na.rm = TRUE)
+total_IDA_50_followup_time <- sum(time_to_IDA_50_atrisk$time_to_IDA_50, na.rm = TRUE) / 365.25  # Convert days to years
+
+incidence_rate_IDA_50 <- (total_IDA_50_events / total_IDA_50_followup_time) * 100  # per 100 patient-years
+
+print(paste("Incidence rate of detected IDA:", round(incidence_rate_IDA_50, 2), "per 100 patient-years"))
+
+# Poisson approximation 95% CI (as large counts)
+IDA_50_rate_ci_lower <- (qpois(0.025, total_IDA_50_events) / total_IDA_50_followup_time)*100
+IDA_50_rate_ci_upper <- (qpois(0.975, total_IDA_50_events) / total_IDA_50_followup_time)*100
+
+# Print results
+cat("Incidence Rate:", round(incidence_rate_IDA_50, 5), "per person-year\n")
+cat("95% CI:", round(IDA_50_rate_ci_lower, 5), "-", round(IDA_50_rate_ci_upper, 5), "per person-year\n")
+
+
+
+# IDA 70: Prepare the dataset for time to IDA_70
+time_to_IDA_70 <- time_to_IDA %>% 
+  mutate(
+    # Calculate time-to-IDA70 (in days)
+    time_to_IDA_70 = case_when(
+      !is.na(Ferritin_value) & Ferritin_value < 70 ~ as.numeric(difftime(Ferritin_obsdate, Index_FirstHb_date, units = "days")),
+      TRUE ~ as.numeric(difftime(EndOfFUPeriod, Index_FirstHb_date, units = "days"))  # Censored cases (no test)
+    ),
+    
+    # Create test indicator (1 = had a ferritin test <70, 0 = no ferritin <70)
+    IDA_70 = ifelse(Ferritin_value < 70, 1, 0)
+  ) %>%
+  
+  # Replace NAs with 0
+  replace_na(list(IDA_70 = 0)) %>%
+  select(patid, time_to_IDA_70, IDA_70)
+
+# Check the summary
+summary(time_to_IDA_70)
+time_to_IDA_70 %>%
+  filter(IDA_70 ==1) %>%
+  summarise(n_distinct(patid)) # n = 8434 (as expected from alluvial plot)
+
+# Exclude patients who had a ferritin result <70 within 90d prior to Index Hb
+
+fer_70_prior_index_90 <- ferritin_during_study %>%
+  left_join(demographics %>% select(patid, Index_FirstHb_date), by = "patid") %>% # Merge all Index Hb dates for each patient
+  filter(Ferritin_obsdate >= (Index_FirstHb_date - 90) & Ferritin_obsdate < Index_FirstHb_date & Ferritin_value <70) %>% # Filter those who had a ferritin <50 within 90 days prior to index Hb
+  distinct(patid) # n = 1057
+
+time_to_IDA_70_atrisk <- time_to_IDA_70 %>%
+  anti_join(fer_70_prior_index_90, by = "patid") # Keep only those NOT in d.f of pt. with fer <70 within 90d of index Hb
+
+rm(fer_70_prior_index_90) # Remove df with patients who had ferritin within 90d prior to Hb
+
+
+# Calculate incidence rate of detected IDA per 100 patient years
+total_IDA_70_events <- sum(time_to_IDA_70_atrisk$IDA_70, na.rm = TRUE)
+total_IDA_70_followup_time <- sum(time_to_IDA_70_atrisk$time_to_IDA_70, na.rm = TRUE) / 365.25  # Convert days to years
+
+incidence_rate_IDA_70 <- (total_IDA_70_events / total_IDA_70_followup_time) * 100  # per 100 patient-years
+
+print(paste("Incidence rate of detected IDA:", round(incidence_rate_IDA_70, 2), "per 100 patient-years"))
+
+# Poisson approximation 95% CI (as large counts)
+IDA_70_rate_ci_lower <- (qpois(0.025, total_IDA_70_events) / total_IDA_70_followup_time)*100
+IDA_70_rate_ci_upper <- (qpois(0.975, total_IDA_70_events) / total_IDA_70_followup_time)*100
+
+# Print results
+cat("Incidence Rate:", round(incidence_rate_IDA_70, 5), "per person-year\n")
+cat("95% CI:", round(IDA_70_rate_ci_lower, 5), "-", round(IDA_70_rate_ci_upper, 5), "per person-year\n")
+
+
+
+# IDA 100: Prepare the dataset for time to IDA_100
+time_to_IDA_100 <- time_to_IDA %>% 
+  mutate(
+    # Calculate time-to-IDA100 (in days)
+    time_to_IDA_100 = case_when(
+      !is.na(Ferritin_value) & Ferritin_value < 100 ~ as.numeric(difftime(Ferritin_obsdate, Index_FirstHb_date, units = "days")),
+      TRUE ~ as.numeric(difftime(EndOfFUPeriod, Index_FirstHb_date, units = "days"))  # Censored cases (no test)
+    ),
+    
+    # Create test indicator (1 = had a ferritin test <100, 0 = no ferritin <100)
+    IDA_100 = ifelse(Ferritin_value < 100, 1, 0)
+  ) %>%
+  
+  # Replace NAs with 0
+  replace_na(list(IDA_100 = 0)) %>%
+  select(patid, time_to_IDA_100, IDA_100)
+
+# Check the summary
+summary(time_to_IDA_100)
+time_to_IDA_100 %>%
+  filter(IDA_100 ==1) %>%
+  summarise(n_distinct(patid)) # n = 9513 (as expected from alluvial plot)
+
+# Exclude patients who had a ferritin result <100 within 90d prior to Index Hb
+
+fer_100_prior_index_90 <- ferritin_during_study %>%
+  left_join(demographics %>% select(patid, Index_FirstHb_date), by = "patid") %>% # Merge all Index Hb dates for each patient
+  filter(Ferritin_obsdate >= (Index_FirstHb_date - 90) & Ferritin_obsdate < Index_FirstHb_date & Ferritin_value <100) %>% # Filter those who had a ferritin <100 within 90 days prior to index Hb
+  distinct(patid) # n = 1261
+
+time_to_IDA_100_atrisk <- time_to_IDA_100 %>%
+  anti_join(fer_100_prior_index_90, by = "patid") # Keep only those NOT in d.f of pt. with fer <100 within 90d of index Hb
+
+rm(fer_100_prior_index_90) # Remove df with patients who had ferritin within 90d prior to Hb
+
+
+# Calculate incidence rate of detected IDA per 100 patient years
+total_IDA_100_events <- sum(time_to_IDA_100_atrisk$IDA_100, na.rm = TRUE)
+total_IDA_100_followup_time <- sum(time_to_IDA_100_atrisk$time_to_IDA_100, na.rm = TRUE) / 365.25  # Convert days to years
+
+incidence_rate_IDA_100 <- (total_IDA_100_events / total_IDA_100_followup_time) * 100  # per 100 patient-years
+
+print(paste("Incidence rate of detected IDA:", round(incidence_rate_IDA_100, 2), "per 100 patient-years"))
+
+# Poisson approximation 95% CI (as large counts)
+IDA_100_rate_ci_lower <- (qpois(0.025, total_IDA_100_events) / total_IDA_100_followup_time)*100
+IDA_100_rate_ci_upper <- (qpois(0.975, total_IDA_100_events) / total_IDA_100_followup_time)*100
+
+# Print results
+cat("Incidence Rate:", round(incidence_rate_IDA_100, 5), "per person-year\n")
+cat("95% CI:", round(IDA_100_rate_ci_lower, 5), "-", round(IDA_100_rate_ci_upper, 5), "per person-year\n")
+
+# Summary table for incidence
+# Define thresholds
+thresholds <- c(30, 50, 70, 100)
+
+# Object names to fetch from environment
+lower_ci_names <- paste0("IDA_", thresholds, "_rate_ci_lower")
+upper_ci_names <- paste0("IDA_", thresholds, "_rate_ci_upper")
+
+# Collect the values
+incidence_rates <- mget(paste0("incidence_rate_IDA_", thresholds))
+lower_cis <- mget(lower_ci_names)
+upper_cis <- mget(upper_ci_names)
+
+
+# Combine into a table
+
+summary_incidence_table <- tibble(
+  `Ferritin Cut-off` = paste0("<", thresholds),
+  `Incidence Rate (per 100 py)` = round(unlist(incidence_rates), 2),
+  `95% CI` = paste0(round(unlist(lower_cis), 2), " – ", round(unlist(upper_cis), 2))
+)
+
+print(summary_incidence_table)
+
+# -----------------------------------------------------------------------------------------------------
+# RESULTS 6: MCV distribution
+
+# Using values which have accompanying MCV
+hist(hb_mcv_during_study$mcv_value)
+
+# Non-independence of values therefore select one result per patient
+# Select a random row per unique patient
+set.seed(42) # Ensure reproducibility
+random_sample_mcv <- hb_mcv_during_study %>%
+  group_by(patid) %>%                 # Group by patient ID
+  slice_sample(n = 1) %>%             # Randomly select 1 row per group
+  ungroup()                           # Ungroup for final output
+
+hist(random_sample_mcv$mcv_value)
+
+# Normal distribution
+summary(random_sample_mcv)
+# n = 42,541
+# mean = 93.52
+
+# Filter to those where Hb is anaemic
+  # Add sex from demographics
+hb_mcv_anaemia <- hb_mcv_during_study %>%
+  left_join(demographics %>% select(patid,gender), by = "patid")
+  
+  # Label patients with anaemia based on hb
+  hb_mcv_anaemia <- hb_mcv_anaemia %>%
+    mutate(
+      anaemia = case_when(
+        # Men
+        gender == 'M' & Hb_value_gdL < 130 ~ '1',
+        
+        # Females
+        gender == 'F' & Hb_value_gdL < 120 ~ '1',
+        
+        # Default "No anaemia" if Hb doesn't meet any criteria
+        TRUE ~ "0"
+      )
+    )    %>%
+  
+  # Filter for anaemia
+    filter(anaemia ==1)
+  
+  # Count unique patients (Hb with MCV and anaemia)
+  hb_mcv_anaemia %>%
+    summarise(n_distinct(patid))                  # n = 25,053
+  
+  # Map ferritin results to anaemic Hb with MCV : Add column if ferritin within 90d of result yn and ferritin result 
+  
+  # Ferritin within 90d Hb y/n
+  hb_mcv_anaemia <- hb_mcv_anaemia %>%
+    left_join(ferritin_during_study, by = "patid") %>%
+    mutate(date_diff = abs(as.numeric(Hb_date - Ferritin_obsdate))) %>%
+    filter(date_diff <= 90) 
+  
+  hb_mcv_anaemia %>%
+    summarise(n_distinct(patid))                  # n = 14,390
+
+  # Ferritin groups
+  hb_mcv_anaemia <- hb_mcv_anaemia %>%
+    mutate(fer_group = case_when(
+      Ferritin_value < 30 ~ "<30",
+      Ferritin_value >= 30 & Ferritin_value < 50 ~ "30-49",
+      Ferritin_value >= 50 & Ferritin_value < 70 ~ "50-69",
+      Ferritin_value >= 70 & Ferritin_value < 100 ~ "70-99",
+      Ferritin_value >= 100 ~ ">=100",
+      TRUE ~ NA_character_ # Handles missing or unexpected values
+    ))  
+
+# a) Distribution of MCV by Hb (scatter) - those with anaemia but MCV >95
+  
+  ggplot(random_sample_mcv, aes(x = mcv_value, y = Hb_value_gdL)) +
+    geom_point(alpha = 0.5) +  # Scatter points with some transparency
+    labs(
+      title = "Random Sample Scatter Plot of Haemoglobin vs. MCV",
+      x = "Mean Corpuscular Volume (MCV)",
+      y = "Haemoglobin (Hb)"
+    ) +
+    theme_minimal()
+  
+# b) Ferritin tests y/n according to MCV in anaemia
+  
+  # Filter hb_mcv_during_study to those where Hb is anaemic
+  # Add sex from demographics
+  hb_mcv_anaemia_2 <- hb_mcv_during_study %>%
+    left_join(demographics %>% select(patid,gender), by = "patid")
+  
+  # Label patients with anaemia based on hb
+  hb_mcv_anaemia_2 <- hb_mcv_anaemia_2 %>%
+    mutate(
+      anaemia = case_when(
+        # Men
+        gender == 'M' & Hb_value_gdL < 130 ~ '1',
+        
+        # Females
+        gender == 'F' & Hb_value_gdL < 120 ~ '1',
+        
+        # Default "No anaemia" if Hb doesn't meet any criteria
+        TRUE ~ "0"
+      )
+    )    %>%
+    
+    # Filter for anaemia
+    filter(anaemia ==1)
+  
+  # Count unique patients (Hb with MCV and anaemia)
+  hb_mcv_anaemia_2 %>%
+    summarise(n_distinct(patid))                  # n = 25,053 (of total 25,666 with anaemia)
+
+  # Add column binary yn ferritin (any time), n = 25, 053
+ hb_mcv_anaemia_fer <- hb_mcv_anaemia_2 %>%
+   mutate(ynferritin = if_else(
+     patid %in% ferritin_during_study$patid,
+     1L, 0L
+   ))
+  
+ hb_mcv_anaemia_fer %>%
+   summarise(n_distinct(patid))                  # n = 25,053
+ 
+  # Take nadir MCV per patid
+ hb_mcv_anaemia_fer_per_patid <- hb_mcv_anaemia_fer %>%
+   group_by(patid) %>%
+   arrange(mcv_value) %>%
+   slice(1) %>%
+   ungroup()
+ 
+  # Assign group by nadir MCV
+ hb_mcv_anaemia_fer_per_patid <- hb_mcv_anaemia_fer_per_patid %>%
+   mutate(
+     mcv_min_group = case_when(
+       mcv_value < 80 ~ '<80',
+       mcv_value >=80 & mcv_value <=95 ~ '80-95',
+       mcv_value >95 & mcv_value <= 100 ~ '95-100',
+       mcv_value > 100 ~ '>100',
+       
+       # Default "mcv missing" if mcv doesn't meet any criteria
+       TRUE ~ "mcv missing"
+     )
+   )  
+
+ # Proportion within each MCV group who received ferritin test
+ 
+ ferritin_mcv_groups <- hb_mcv_anaemia_fer_per_patid %>%
+   mutate(
+     mcv_min_group = factor(
+       mcv_min_group,
+       levels = c("<80", "80-95", "95-100", ">100")
+     )
+   ) %>%
+   group_by(mcv_min_group) %>%
+   summarise(
+     ferritin_tested = sum(ynferritin == 1, na.rm = TRUE),
+     total_in_group = n()
+   ) %>%
+   mutate(percentage_ferritin_tested = (ferritin_tested / total_in_group) * 100,
+          cum_count_ferritin_tested = cumsum(ferritin_tested),
+          cum_total = cumsum(total_in_group),
+          cum_percentage_ferritin_tested = (cum_count_ferritin_tested / cum_total) * 100
+   )
+ 
+ print(ferritin_mcv_groups)
+ 
+
+  # Number with mcv 80 - 100 who did not receive ferritin test
+ # extract rows of interest
+ mcv_sub <- ferritin_mcv_groups %>%
+   filter(mcv_min_group %in% c("80-95", "95-100")) %>%
+   mutate(not_tested = total_in_group - ferritin_tested)
+ 
+ # total number not tested in these groups
+ total_not_tested <- sum(mcv_sub$not_tested)
+ 
+ # total number of patients in these groups
+ total_patients <- sum(mcv_sub$total_in_group)
+ 
+ # percentage not tested
+ percent_not_tested <- (total_not_tested / total_patients) * 100
+ 
+ total_not_tested # total anaemic patients with nadir mcv 80-100 not tested for ferritin
+ percent_not_tested # % of anaemic patients with nadir mcv 80-100 not tested for ferritin
+ 
+  
+# c)i) Distribution of MCV in anaemia according to ferritin (<30, <50, <70, <100, >100) - histograms
+  # Values per unique patient selected on shortest date diff
+  closest_sample_hb_mcv_anaemia <- hb_mcv_anaemia %>%
+    group_by(patid) %>%
+    arrange(date_diff, Ferritin_obsdate) %>%
+    slice(1) %>%
+    ungroup()
+  
+  # Histogram ferritin split (using closest Hb to fer sampling for each unique patient)
+  ggplot(closest_sample_hb_mcv_anaemia, aes(x = mcv_value, fill = fer_group)) +
+    geom_vline(xintercept = 95, linetype = "dashed", color = "red", size = 1) +
+    geom_vline(xintercept = 80, linetype = "dashed", color = "blue", size = 1) +
+    geom_vline(xintercept = 100, linetype = "dashed", color = "blue", size = 1) +
+    geom_histogram(bins = 30, alpha = 0.5, position = "identity") +
+    labs(
+      title = "Distirbution of MCV Values in anaemic patients split by ferritin result",
+      x = "MCV value",
+      y = "Count",
+      fill = "Ferritin"
+    ) +
+    theme_minimal()
+  
+  
+  #c)ii) Sensitivity analysis: Distribution of MCV in anaemia according to ferritin (<30, <50, <70, <100, >100) - histograms
+  # Non-independence of values therefore select one result per patient
+  # Select a random row per unique patient
+  set.seed(42) # Ensure reproducibility
+  random_sample_hb_mcv_anaemia <- hb_mcv_anaemia %>%
+    group_by(patid) %>%                 # Group by patient ID
+    slice_sample(n = 1) %>%             # Randomly select 1 row per group
+    ungroup()                           # Ungroup for final output
+  
+  hist(random_sample_hb_mcv_anaemia$mcv_value)
+  
+  # Histogram ferritin split (using random sampling for each unique patient)
+  ggplot(random_sample_hb_mcv_anaemia, aes(x = mcv_value, fill = fer_group)) +
+    geom_histogram(bins = 30, alpha = 0.5, position = "identity") +
+    labs(
+      title = "Histogram of MCV Values in anaemic patients split by ferritin result",
+      x = "MCV value",
+      y = "Count",
+      fill = "Ferritin"
+    ) +
+    theme_minimal()
+
+  
+  # Sensitivity: count no. patients where MCV >= 95 in each ferritin group (using random sample results)
+  
+  mcv_counts <- random_sample_hb_mcv_anaemia %>%
+    group_by(fer_group) %>%
+    summarise(
+      count_above_95 = sum(mcv_value >= 95, na.rm = TRUE),
+      total_in_group = n()
+    ) %>%
+    mutate(percentage_above_95 = (count_above_95 / total_in_group) * 100)
+  
+  print(mcv_counts)
+  
+  #d) Scatter of Hb by MCV colour groups by ferritin
+  ggplot(closest_sample_hb_mcv_anaemia, aes(x = mcv_value, y = Hb_value_gdL, color = fer_group)) +
+    geom_point(alpha = 0.5) +  # Scatter points with some transparency
+    labs(
+      title = "Scatter Plot of Haemoglobin vs. MCV",
+      x = "Mean Corpuscular Volume (MCV)",
+      y = "Haemoglobin (Hb)",
+      color = "Ferritin Group"  # Legend title
+    ) +
+    theme_minimal()
+  
+  # e) Scatter plot with marginal histograms of MCV and ferritin
+  
+  library(ggplot2)
+  library(ggExtra)
+  
+  # Pearson correlation
+  cor_test <- cor.test(
+    closest_sample_hb_mcv_anaemia$mcv_value, 
+    log(closest_sample_hb_mcv_anaemia$Ferritin_value), 
+    use = "complete.obs"
+  )
+  
+  cor_text <- paste0(
+    "Pearson r = ", round(cor_test$estimate, 2),
+    " [", round(cor_test$conf.int[1], 2), ", ", round(cor_test$conf.int[2], 2), "]"
+  )
+  
+  # Get axis range
+  max_mcv <- max(closest_sample_hb_mcv_anaemia$mcv_value, na.rm = TRUE)
+  min_ferritin <- min(closest_sample_hb_mcv_anaemia$Ferritin_value[closest_sample_hb_mcv_anaemia$Ferritin_value > 0], na.rm = TRUE)
+  
+  # Main plot
+  p <- ggplot(closest_sample_hb_mcv_anaemia, aes(x = mcv_value, y = Ferritin_value, color = fer_group)) +
+    geom_point(alpha = 0.6, size = 1.5) +
+    geom_vline(xintercept = c(80, 95, 100), 
+               linetype = c("dashed", "dotted", "dashed"), 
+               color = c("blue", "red", "blue")) +
+    scale_y_log10(labels = scales::label_number()) +
+    annotate("text", 
+             x = max_mcv - 3, 
+             y = min_ferritin * 1.5, 
+             label = cor_text, 
+             hjust = 1, vjust = 0,
+             size = 4) +
+    labs(
+      title = "Ferritin vs. MCV by Ferritin Group",
+      subtitle = "With marginal MCV distribution and Pearson correlation",
+      x = "Mean Corpuscular Volume (MCV, fL)",
+      y = "Ferritin (µg/L, log scale)",
+      color = "Ferritin Group"
+    ) +
+    theme_bw(base_size = 12) +
+    theme(
+      legend.position = "bottom",
+      legend.title = element_text(face = "bold"),
+      plot.title = element_text(hjust = 0.5, face = "bold"),
+      plot.subtitle = element_text(hjust = 0.5),
+      panel.grid.minor = element_blank()
+    )
+  
+  # Marginal MCV histogram only
+  ggMarginal(p,
+             type = "histogram",
+             margins = "x",
+             groupColour = TRUE,
+             groupFill = TRUE,
+             bins = 30)
+  
+
+  # f) Individual histograms by ferritin groups
+  ggplot(closest_sample_hb_mcv_anaemia, aes(x = mcv_value, fill = fer_group)) +
+    geom_histogram(binwidth = 2, color = "white", alpha = 0.8) +
+    geom_vline(xintercept = 80, linetype = "dashed", color = "blue") +
+    geom_vline(xintercept = 95, linetype = "dashed", color = "red") +
+    geom_vline(xintercept = 100, linetype = "dashed", color = "blue") +
+    facet_wrap(~fer_group, ncol = 2) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(
+      title = "Distribution of MCV by Ferritin Group",
+      x = "Mean Corpuscular Volume (MCV)",
+      y = "Count",
+      fill = "Ferritin Group"
+    ) +
+    theme_minimal(base_size = 13)
+  
+  
+  
+  
+  # g) Correlation plot with smoothing line
+  
+  ggplot(hb_mcv_anaemia, aes(x = Ferritin_value, y = mcv_value)) +
+    geom_point(alpha = 0.3, size = 1, color = "steelblue") +
+    geom_smooth(method = "loess", se = FALSE, color = "darkred", linewidth = 1.2) +
+    scale_x_log10() +
+    labs(
+      title = "Figure 4a. Correlation between Ferritin and MCV in Patients with Cirrhosis and Anaemia",
+      x = "Ferritin (µg/L, log scale)",
+      y = "Mean Corpuscular Volume (fL)"
+    ) +
+    theme_minimal(base_size = 13)
+  
+  
+  
+  
+  #f) Box plot of MCV distribution in patients with anaemia and ferritin within 90d, by ferritin group
+  # Define ferritin group order
+
+  closest_sample_hb_mcv_anaemia$fer_group <- factor(closest_sample_hb_mcv_anaemia$fer_group, 
+                                                    levels = c("<30", "30-49", "50-69", "70-99", ">=100"))
+  
+  # Create boxplot
+  ggplot(closest_sample_hb_mcv_anaemia, aes(x = fer_group, y = mcv_value, fill = fer_group)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.7) +  # Boxplot without outliers
+    #geom_jitter(width = 0.2, alpha = 0.08) +  # Adds jittered points for better visualization
+    geom_hline(yintercept = 95, linetype = "dashed", color = "red", size = 0.8) +  # Red dashed line at MCV 95
+    geom_hline(yintercept = 80, linetype = "dashed", color = "blue", size = 1) +  # Blue dashed line at MCV 80
+    geom_hline(yintercept = 100, linetype = "dashed", color = "blue", size = 1) +  # Blue dashed line at MCV 100
+    labs(
+      title = "MCV Distribution by Ferritin Group",
+      x = "Ferritin Group",
+      y = "Mean Corpuscular Volume (MCV)",
+      fill = "Ferritin Group"
+    ) +
+    theme_minimal() +
+    theme(legend.position = "none")  # Hide legend if not needed
+  
+  # FIGURE 4B >>>>>>>> count no. patients where MCV >= 95 in each ferritin group (using closest results)
+  
+  mcv_counts <- closest_sample_hb_mcv_anaemia %>%
+    group_by(fer_group) %>%
+    summarise(
+      count_above_95 = sum(mcv_value >= 95, na.rm = TRUE),
+      total_in_group = n()
+    ) %>%
+    mutate(percentage_above_95 = (count_above_95 / total_in_group) * 100)
+  
+  print(mcv_counts)
+  
+  # Cumulative counts 
+  
+  # Set ordered ferritin thresholds for cumulative summary
+  ferritin_order <- c("<30", "30-49", "50-69", "70-99", ">=100")
+  
+  mcv_cumulative <- mcv_counts %>%
+    filter(fer_group %in% ferritin_order) %>%
+    mutate(fer_group = factor(fer_group, levels = ferritin_order)) %>%
+    arrange(fer_group) %>%
+    mutate(
+      cum_count_above_95 = cumsum(count_above_95),
+      cum_total = cumsum(total_in_group),
+      cum_percentage_above_95 = (cum_count_above_95 / cum_total) * 100
+    )
+  
+  # Final output
+  print(mcv_cumulative)
+  
+  # Count no. patients with 'normal' MCV and in each ferritin group
+  mcv_summary_80_100 <- closest_sample_hb_mcv_anaemia %>%
+    group_by(fer_group) %>%
+    summarise(
+      total_in_group = n(),
+      count_mcv_80_100 = sum(mcv_value >= 80 & mcv_value <= 100, na.rm = TRUE)
+    ) %>%
+    mutate(
+      percentage_mcv_80_100 = (count_mcv_80_100 / total_in_group) * 100
+    )
+  
+  print(mcv_summary_80_100)
+  
+  # Cumulative 'normal' mcv counts
+  mcv_80_100_cumulative <- mcv_summary_80_100 %>%
+    filter(fer_group %in% ferritin_order) %>%
+    mutate(fer_group = factor(fer_group, levels = ferritin_order)) %>%
+    arrange(fer_group) %>%
+    mutate(
+      cum_count_80_100 = cumsum(count_mcv_80_100),
+      cum_total = cumsum(total_in_group),
+      cum_percentage_80_100 = (cum_count_80_100 / cum_total) * 100
+    )
+  
+  # Final output
+  print(mcv_80_100_cumulative)
+  
+# Figure 4b plot
+  library(ggplot2)
+  
+  # Step 1: Create cumulative ferritin thresholds
+  sensitivity_data <- closest_sample_hb_mcv_anaemia %>%
+    filter(!is.na(Ferritin_value), !is.na(mcv_value)) %>%
+    mutate(
+      threshold_group = case_when(
+        Ferritin_value < 30 ~ "<30",
+        Ferritin_value < 50 ~ "<50",
+        Ferritin_value < 70 ~ "<70",
+        Ferritin_value < 100 ~ "<100",
+        TRUE ~ NA_character_
+      )
+    )
+  
+  # Step 2: Define cumulative thresholds to evaluate
+  thresholds <- c("<30", "<50", "<70", "<100")
+  
+  # Step 3: Loop through each cumulative threshold and compute sensitivity
+  sensitivity_results <- lapply(thresholds, function(thresh) {
+    subset <- sensitivity_data %>%
+      filter(case_when(
+        thresh == "<30" ~ Ferritin_value < 30,
+        thresh == "<50" ~ Ferritin_value < 50,
+        thresh == "<70" ~ Ferritin_value < 70,
+        thresh == "<100" ~ Ferritin_value < 100
+      ))
+    
+    total <- nrow(subset)
+    detected <- sum(subset$mcv_value < 95, na.rm = TRUE)
+    sensitivity <- (detected / total) * 100
+    
+    data.frame(
+      threshold = thresh,
+      total = total,
+      detected = detected,
+      missed = total - detected,
+      sensitivity = sensitivity
+    )
+  }) %>% bind_rows()
+  
+  # Step 4: Ensure threshold is ordered correctly
+  sensitivity_results <- sensitivity_results %>%
+    mutate(threshold = factor(threshold, levels = c("<30", "<50", "<70", "<100")))
+  
+  # Plot with ordered thresholds
+  ggplot(sensitivity_results, aes(x = threshold, y = sensitivity)) +
+    geom_col(fill = "darkred", colour = 'black', width = 0.6) +
+    geom_text(aes(label = paste0("n=", total)), 
+              vjust = -0.5, size = 4) +
+    geom_hline(yintercept = 97.6, linetype = "dashed", color = "grey20") +
+    annotate("text", x = 4.1, y = 97.6, label = "NICE reported sensitivity 97.6%", 
+             hjust = 1, vjust = -0.5, size = 4, color = "grey20") +
+    ylim(0, 100) +
+    labs(
+      title = "Sensitivity of MCV <95 fL to Detect Low Ferritin",
+      x = "Ferritin Threshold (ug/L)",
+      y = "Sensitivity (%)"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+      panel.grid.major = element_blank(),   # Remove major gridlines
+      panel.grid.minor = element_blank(),   # Remove minor gridlines
+      panel.border = element_blank(),       # Optional: remove panel border
+      axis.line = element_line(color = "black")  # Add axis lines
+    )
+  
+  
+  
+  
+# -----------------------------------------------------------------------------------------------------
+  # RESULTS 7: Oral iron and Hb response by ferritin 
+  
+  # Review all who received oral iron
+  
+  summary(Oral_Iron_during_study)
+  str(Oral_Iron_during_study)
+  Oral_Iron_during_study %>%
+    summarise(n_distinct(patid)) # n = 11,888
+  
+  # Select earliest iron prescription per patient if multiple
+  
+  oral_iron_subgroup <- Oral_Iron_during_study %>%
+    select(-ynoraliron) %>%
+    group_by(patid) %>%
+    arrange(Oral_Iron_issuedate) %>%
+    slice(1) %>%
+    ungroup() # n = 11,888
+  
+  # Exclude those who have oral iron prescribed within 90d of start of follow up (i.e 90d prior to index date)
+  # avoid impact on fu testing and Hb response if patient has already received iron within 90d of baseline
+  
+  oral_iron_subgroup <- oral_iron_subgroup %>%
+    mutate(start_iron_time = abs(as.numeric(Oral_Iron_issuedate - StartOfFollowUp))) %>%
+    filter(start_iron_time >= 90) # n = 7,306 had a new oral iron prescription
+
+  # Add fu time 
+  
+  oral_iron_subgroup <- oral_iron_subgroup %>%
+    mutate(EndOfFUPeriod = as.Date(EndOfFUPeriod)) %>%
+    mutate(fu_time = abs(as.numeric(EndOfFUPeriod - Oral_Iron_issuedate)),
+           fu_3m = if_else(fu_time >= 90, 1, 0),
+           fu_6m = if_else(fu_time >= 180, 1, 0)
+    )
+
+  # Oral iron and had 3 months of follow up (still in the data)
+  
+  oral_iron_subgroup %>%
+    filter(fu_3m == 1) %>%
+    summarise(n_distinct(patid)) # n = 6,591
+  
+  # Oral iron and had 6 months of follow up (still in the data)
+  
+    oral_iron_subgroup %>%
+    filter(fu_6m == 1) %>%
+    summarise(n_distinct(patid)) # n = 5,921
+
+  
+  # Baseline Hb: within 90d prior to and 14d after iron prescription
+    
+  oral_iron_baseline_subgroup <- oral_iron_subgroup %>%
+    select(patid, Oral_Iron_issuedate) %>%
+    left_join(hbs_during_study %>% select(patid, Hb_obsdate, Hb_value_gdL), by = "patid") %>% # merge all Hb measurements per patient
+    mutate(hb_iron_date_diff = as.numeric(Hb_obsdate - Oral_Iron_issuedate), # generate datediff between hb date and oral iron prescription (days)
+           hb_baseline_yn = if_else(hb_iron_date_diff >= -90 & hb_iron_date_diff <=14,1,0)) %>% # Add column if Hb within 90d prior or 14d after iron
+    filter(hb_baseline_yn ==1) %>%
+    group_by(patid) %>%
+    arrange(abs(hb_iron_date_diff)) %>% # arrange by datediff and select smallest absolute date diff (closest Hb to iron prescription)
+    slice(1) %>%
+    ungroup()    # n = 6,329
+  
+  oral_iron_baseline_subgroup <- oral_iron_baseline_subgroup %>%
+    rename(Hb_baseline_date = Hb_obsdate,
+           Hb_baseline_value = Hb_value_gdL,
+           Hb_baseline_iron_date_diff = hb_iron_date_diff) # n = 6329
+  
+  
+  # Follow up Hb: after 2 weeks but within 3 months (y/n and time to follow up Hb from oral iron prescription)
+  
+  oral_iron_fu_subgroup <- oral_iron_subgroup %>%
+    select(patid, Oral_Iron_issuedate) %>%
+    left_join(hbs_during_study %>% select(patid, Hb_obsdate, Hb_value_gdL), by = "patid") %>% # merge all Hb measurements per patient again
+    mutate(hb_3m_iron_date_diff = as.numeric(Hb_obsdate - Oral_Iron_issuedate), # generate datediff between hb date and oral iron prescription again
+           hb_3m_yn = if_else(hb_3m_iron_date_diff > 14 & hb_3m_iron_date_diff <= 90,1,0)) %>% # Add column to help filtering subgroups
+    filter(hb_3m_yn == 1) %>% # now filter for all hb results > 14 days but < 90 days after iron prescription
+    group_by(patid) %>%
+    arrange(desc(hb_3m_iron_date_diff)) %>% # arrange by datediff and select largest (latest)
+    slice(1) %>%
+    ungroup()    # n = 3290
+  
+  oral_iron_fu_subgroup <- oral_iron_fu_subgroup %>%
+    rename(Hb_3m_date = Hb_obsdate,
+           Hb_3m_value = Hb_value_gdL)
+  
+  # Merge baseline values and 3m fu into oral iron subgroup
+  
+  oral_iron_subgroup <- oral_iron_subgroup %>%
+    left_join(oral_iron_baseline_subgroup %>% select(patid, Hb_baseline_date, Hb_baseline_value, hb_baseline_yn), by = 'patid') %>%
+    mutate(hb_baseline_yn = replace_na(hb_baseline_yn, 0))
+  
+  oral_iron_subgroup <- oral_iron_subgroup %>%
+    left_join(oral_iron_fu_subgroup %>% select(patid, Hb_3m_date, Hb_3m_value, hb_3m_iron_date_diff, hb_3m_yn), by = 'patid') %>%
+    mutate(hb_3m_yn = replace_na(hb_3m_yn, 0))
+  
+  # Add baseline MCV and delta MCV (code same as for Hb)
+  
+  # Baseline MCV: within 90d prior to and 14d after iron prescription
+  
+  oral_iron_mcv_baseline <- oral_iron_subgroup %>%
+    select(patid, Oral_Iron_issuedate) %>%
+    left_join(hb_mcv_during_study %>% select(patid, mcv_date, mcv_value), by = "patid") %>% # merge all mcv measurements per patient
+    mutate(mcv_iron_date_diff = as.numeric(mcv_date - Oral_Iron_issuedate), # generate datediff between mcv date and oral iron prescription (days)
+           mcv_baseline_yn = if_else(mcv_iron_date_diff >= -90 & mcv_iron_date_diff <=14,1,0)) %>% # Add column if mcv within 90d prior or 21d after iron
+    filter(mcv_baseline_yn ==1) %>%
+    group_by(patid) %>%
+    arrange(abs(mcv_iron_date_diff)) %>% # arrange by datediff and select smallest absolute date diff (closest mcv to iron prescription)
+    slice(1) %>%
+    ungroup()    # n = 6,246
+  
+  oral_iron_mcv_baseline <- oral_iron_mcv_baseline %>%
+    rename(mcv_baseline_date = mcv_date,
+           mcv_baseline_value = mcv_value,
+           mcv_baseline_iron_date_diff = mcv_iron_date_diff) 
+  
+  
+  # Follow up mcv: after 2 weeks but within 3 months
+  
+  oral_iron_mcv_fu <- oral_iron_subgroup %>%
+    select(patid, Oral_Iron_issuedate) %>%
+    left_join(hb_mcv_during_study %>% select(patid, mcv_date, mcv_value), by = "patid") %>% # merge all mcv measurements per patient again
+    mutate(mcv_3m_iron_date_diff = as.numeric(mcv_date - Oral_Iron_issuedate), # generate datediff between mcv date and oral iron prescription again
+           mcv_3m_yn = if_else(mcv_3m_iron_date_diff > 14 & mcv_3m_iron_date_diff <= 90,1,0)) %>% # Add column to help filtering subgroups
+    filter(mcv_3m_yn == 1) %>% # now filter for all mcv results > 14 days but < 90 days after iron prescription
+    group_by(patid) %>%
+    arrange(desc(mcv_3m_iron_date_diff)) %>% # arrange by datediff and select largest (latest)
+    slice(1) %>%
+    ungroup()    # n = 3235
+  
+  oral_iron_mcv_fu <- oral_iron_mcv_fu %>%
+    rename(mcv_3m_date = mcv_date,
+           mcv_3m_value = mcv_value)
+  
+  # Merge mcv baseline values and mcv 3m fu into oral iron subgroup
+  
+  oral_iron_subgroup <- oral_iron_subgroup %>%
+    left_join(oral_iron_mcv_baseline %>% select(patid, mcv_baseline_value, mcv_baseline_yn), by = 'patid') %>%
+    mutate(mcv_baseline_yn = replace_na(mcv_baseline_yn, 0))
+  
+  oral_iron_subgroup <- oral_iron_subgroup %>%
+    left_join(oral_iron_mcv_fu %>% select(patid, mcv_3m_value, mcv_3m_yn), by = 'patid') %>%
+    mutate(mcv_3m_yn = replace_na(mcv_3m_yn, 0))
+  
+  
+  
+  # Add baseline ferritin 
+  
+  oral_iron_subgroup_ferritin <- oral_iron_subgroup %>%
+    left_join(ferritin_during_study %>% select(patid, Ferritin_obsdate, Ferritin_value), by = "patid") %>%
+    mutate(fer_iron_date_diff = as.numeric(Ferritin_obsdate - Oral_Iron_issuedate), # generate datediff between fer date and oral iron
+           fer_baseline_yn = if_else(fer_iron_date_diff <= 14 & fer_iron_date_diff >= -90,1,0)) %>% # Add column to help filter subgroups
+    filter(fer_baseline_yn ==1) %>% # keep only those with 'baseline' ferritin (within 90d prior or 14d post oral iron)
+    group_by(patid) %>%
+    arrange(abs(fer_iron_date_diff)) %>% # keep closest to iron issue date
+    slice(1) %>%
+    ungroup()
+  
+  oral_iron_subgroup_ferritin <- oral_iron_subgroup_ferritin %>%
+    rename(fer_baseline_value = Ferritin_value)
+    
+  # Merge baseline ferritin to oral iron subgroup
+  
+  oral_iron_subgroup <- oral_iron_subgroup %>%
+    left_join(oral_iron_subgroup_ferritin %>% select(patid, fer_baseline_value, fer_baseline_yn), by = 'patid') %>%
+    mutate(fer_baseline_yn = replace_na(fer_baseline_yn, 0))
+  
+  # Add cirrhosis type
+  
+  oral_iron_subgroup <- oral_iron_subgroup %>%
+    left_join(cirrhosis_type %>% select(patid, type_cirrhosis), by ='patid') 
+  
+  oral_iron_subgroup <- oral_iron_subgroup %>%
+    left_join(cirrhosis_basic %>% select(patid, aetiology_cirrhosis), by ='patid') 
+  
+  # check missingness
+  cirrhosis_type %>%
+    summarise(
+      missing = sum(is.na(type_cirrhosis)),
+      non_missing = sum(!is.na(type_cirrhosis)),
+      total = n()
+    )
+  
+  
+  # Add UKELD risk n= 4,678
+  
+  oral_iron_subgroup <- oral_iron_subgroup %>%
+    left_join(UKELD %>% select(patid, UKELD_risk), by ='patid') 
+  
+  # check missingness 
+  UKELD %>%
+    summarise(
+      missing = sum(is.na(UKELD_risk)),
+      non_missing = sum(!is.na(UKELD_risk)),
+      total = n()
+    )
+  
+  
+  # Add columns for baseline anaemia, baseline ferritin groups, delta Hb, delta MCV and Hb response > 10 y/n
+  
+  # add gender
+  oral_iron_subgroup <- oral_iron_subgroup %>%
+    left_join(demographics %>% select(patid, gender), by = 'patid')
+  
+  # now add columns
+  oral_iron_subgroup <- oral_iron_subgroup %>%
+    mutate(
+      # anaemia baseline
+      anaemia_baseline = case_when(  
+        # Men
+        gender == 'M' & Hb_baseline_value >= 110 & Hb_baseline_value < 130 ~ 'Mild',
+        gender == 'M' & Hb_baseline_value >= 80 & Hb_baseline_value < 110 ~ 'Moderate',      
+        gender == 'M' & Hb_baseline_value < 80 ~ 'Severe',
+        
+        # Females
+        gender == 'F' & Hb_baseline_value >= 110 & Hb_baseline_value < 120 ~ 'Mild',
+        gender == 'F' & Hb_baseline_value >= 80 & Hb_baseline_value < 110 ~ 'Moderate',      
+        gender == 'F' & Hb_baseline_value < 80 ~ 'Severe',
+        
+        # No baseline Hb
+        is.na(Hb_baseline_value) ~ 'Missing',
+        
+        # Default "No Anaemia" if Hb doesn't meet any criteria
+        TRUE ~ "No Anaemia"
+      ),
+      
+      # ferritin baseline group
+      fer_baseline = case_when(
+        fer_baseline_value < 30 ~ "<30",
+        fer_baseline_value >= 30 & fer_baseline_value < 50 ~ "30-49",
+        fer_baseline_value >= 50 & fer_baseline_value < 70 ~ "50-69",
+        fer_baseline_value >= 70 & fer_baseline_value < 100 ~ "70-99",
+        fer_baseline_value >= 100 ~ ">=100",
+        TRUE ~ NA_character_ # Handles missing or unexpected values
+      ),  
+      
+      # mcv baseline group
+      mcv_baseline = case_when(
+        mcv_baseline_value < 80 ~ "<80",
+        mcv_baseline_value >= 80 & mcv_baseline_value <= 95 ~ "80-95",
+        mcv_baseline_value > 95 & mcv_baseline_value < 100 ~ "95-100",
+        mcv_baseline_value >= 100 ~ ">=100",
+        TRUE ~ NA_character_ # Handles missing or unexpected values
+      ), 
+      
+      # Calculate Hb change over 3 months
+      delta_3m_hb = Hb_3m_value - Hb_baseline_value,
+      
+      # Calculate MCV change over 3 months
+      delta_3m_mcv = mcv_3m_value - mcv_baseline_value,
+      
+      # Flag for >10 g/L increase in Hb
+      Hb_10 = if_else(!is.na(delta_3m_hb) & delta_3m_hb > 10, 1, 0)
+    )
+  
+  # Also add age at oral iron issue and ethnicity
+  oral_iron_subgroup <- oral_iron_subgroup %>%
+    left_join(demographics %>% select(patid, ethnicity, yob), by = 'patid') %>%
+    mutate(year_iron = year(ymd(Oral_Iron_issuedate)), # Extract the year
+           age_iron = year_iron - yob) # Calculate age
+  
+  
+  # Oral iron analysis
+  oral_iron_analysis <- oral_iron_subgroup %>%
+    select(patid, gender, ethnicity, age_iron, type_cirrhosis, aetiology_cirrhosis, UKELD_risk, Oral_Iron_issuedate, fu_3m, fu_6m, Hb_baseline_value, hb_baseline_yn, anaemia_baseline, mcv_baseline_value, mcv_baseline_yn, mcv_baseline, 
+           fer_baseline_value, fer_baseline, fer_baseline_yn, Hb_3m_value, hb_3m_yn, mcv_3m_value, mcv_3m_yn, delta_3m_hb, delta_3m_mcv, Hb_10)
+    
+  
+  # SUMMARY TABLES : ORAL IRON USE
+  # Hb response by anaemia at baseline
+  
+  oral_iron_analysis <- oral_iron_analysis %>%
+    mutate(anaemia_baseline = factor(anaemia_baseline, levels = c("No Anaemia", "Mild", "Moderate", "Severe", "Missing")))  
+  
+  anaemia_Hb_response_summary_table <- oral_iron_analysis %>%
+    filter(fu_3m == 1) %>%   # Subgroup with at least 3m follow up n = 6591
+    group_by(anaemia_baseline) %>%
+    summarise(
+      count = n(),
+      Hb_delta_count = sum(hb_baseline_yn == 1 & hb_3m_yn == 1, na.rm = TRUE),
+      Hb_10_count = sum(Hb_10, na.rm = TRUE),
+      #percentage_all_Hb_10 = round((Hb_10_count / count) * 100, 1), # Percentage with Hb_10 = 1
+      percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1) # Percentage Hb_10 = 1 of those with delta hb (baseline and 3m fu)
+    ) %>%
+    ungroup() %>%
+    bind_rows(
+      summarise(
+        filter(oral_iron_analysis, fu_3m == 1),  # Ensure filter applies to total row
+        anaemia_baseline = "Total",
+        count = n(),
+        Hb_delta_count = sum(hb_baseline_yn == 1 & hb_3m_yn == 1, na.rm = TRUE),
+        Hb_10_count = sum(Hb_10, na.rm = TRUE),
+        #percentage_all_Hb_10 = round((Hb_10_count / count) * 100, 1),
+        percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1)
+      )
+    )
+  
+  
+  # Hb response by ferritin at baseline
+  
+  oral_iron_analysis <- oral_iron_analysis %>%
+    mutate(fer_baseline = factor(fer_baseline, levels = c("<30", "30-49","50-69", "70-99", ">=100")))  
+  
+  ferritin_Hb_response_summary_table <- oral_iron_analysis %>%
+    filter(fu_3m ==1) %>%
+    group_by(fer_baseline) %>%
+    summarise(
+      count = n(),
+      Hb_delta_count = sum(hb_baseline_yn == 1 & hb_3m_yn == 1, na.rm = T),
+      Hb_10_count = sum(Hb_10, na.rm = TRUE),
+      #percentage_all_Hb_10 = round((Hb_10_count / count) * 100, 1),  # Percentage Hb_10 = 1 of all
+      percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1),  # Percentage Hb_10 = 1 of those with delta hb (baseline and 3m fu)
+    )  
+  
+  # Hb response by MCV at baseline
+  
+  oral_iron_analysis <- oral_iron_analysis %>%
+    mutate(mcv_baseline = factor(mcv_baseline, levels = c("<80", "80-95","95-100",">=100")))    
+  
+  mcv_response_summary_table <- oral_iron_analysis %>%
+    filter(fu_3m ==1) %>%
+    group_by(mcv_baseline) %>%
+    summarise(
+      count = n(),
+      Hb_delta_count = sum(hb_baseline_yn == 1 & hb_3m_yn == 1, na.rm = T),
+      Hb_10_count = sum(Hb_10, na.rm = TRUE),
+      #percentage_all_Hb_10 = round((Hb_10_count / count) * 100, 1),  # Percentage with Hb_10 = 1
+      percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1),  # Percentage Hb_10 = 1 of those with delta hb (baseline and 3m fu)
+    )
+  
+  # Hb response by cirrhosis type at baseline
+  
+  oral_iron_analysis <- oral_iron_analysis %>%
+    mutate(type_cirrhosis = factor(type_cirrhosis, levels = c("alcohol", "non-alcohol", "unknown")))    
+  
+  type_cirrhosis_response_summary_table <- oral_iron_analysis %>%
+    filter(fu_3m ==1) %>%
+    group_by(type_cirrhosis) %>%
+    summarise(
+      count = n(),
+      Hb_delta_count = sum(hb_baseline_yn == 1 & hb_3m_yn == 1, na.rm = T),
+      Hb_10_count = sum(Hb_10, na.rm = TRUE),
+      #percentage_all_Hb_10 = round((Hb_10_count / count) * 100, 1),  # Percentage with Hb_10 = 1
+      percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1),  # Percentage Hb_10 = 1 of those with delta hb (baseline and 3m fu)
+    )
+  
+  oral_iron_analysis <- oral_iron_analysis %>%
+    mutate(aetiology_cirrhosis = factor(aetiology_cirrhosis, levels = c("alcohol", "non-alcohol", "unspecified")))    
+  
+  aetiology_cirrhosis_response_summary_table <- oral_iron_analysis %>%
+    filter(fu_3m ==1) %>%
+    group_by(aetiology_cirrhosis) %>%
+    summarise(
+      count = n(),
+      Hb_delta_count = sum(hb_baseline_yn == 1 & hb_3m_yn == 1, na.rm = T),
+      Hb_10_count = sum(Hb_10, na.rm = TRUE),
+      #percentage_all_Hb_10 = round((Hb_10_count / count) * 100, 1),  # Percentage with Hb_10 = 1
+      percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1),  # Percentage Hb_10 = 1 of those with delta hb (baseline and 3m fu)
+    )
+  
+  
+  # Hb response by UKELD at baseline
+  
+  oral_iron_analysis <- oral_iron_analysis %>%
+    mutate(UKELD_risk = factor(UKELD_risk, levels = c("Low", "High")))    
+  
+  UKELD_Hb_response_summary_table <- oral_iron_analysis %>%
+    filter(fu_3m ==1) %>%
+    group_by(UKELD_risk) %>%
+    summarise(
+      count = n(),
+      Hb_delta_count = sum(hb_baseline_yn == 1 & hb_3m_yn == 1, na.rm = T),
+      Hb_10_count = sum(Hb_10, na.rm = TRUE),
+      #percentage_all_Hb_10 = round((Hb_10_count / count) * 100, 1),  # Percentage with Hb_10 = 1
+      percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1),  # Percentage Hb_10 = 1 of those with delta hb (baseline and 3m fu)
+    )
+  
+  # Print summary tables - presenting Hb response as % of all those with 3m fu (not just those that had recorded delta Hb) ie takes into account lack of fu
+  # AND of those with Hb_delta recorded
+  # interpretation as detected Hb response by baseline Hb/ferritin/MCV. can consider how all vs those who return and how this changes by group 
+  
+  print(anaemia_Hb_response_summary_table)
+  print(ferritin_Hb_response_summary_table)
+  print(mcv_response_summary_table)
+  print(type_cirrhosis_response_summary_table)
+  print(aetiology_cirrhosis_response_summary_table)  
+  print(UKELD_Hb_response_summary_table)
+  
+  
+  # TIME MATCHED CONTROLS
+  
+  
+  # Step 1: Remove patients who received oral iron at any time from hbs_during_study
+  hb_no_iron_during_study <- hbs_during_study %>%
+    anti_join(Oral_Iron_during_study, by = "patid") %>%
+    mutate(EndOfFUPeriod = as.Date(EndOfFUPeriod))
+  
+  # Step 2: Add follow-up variables 
+  hb_no_iron_during_study <- hb_no_iron_during_study %>%
+    group_by(patid) %>%
+    mutate(
+    # Add variable fu at least 3m or 6m after Hb test
+      fu_3m = any(EndOfFUPeriod >= Hb_obsdate + days(90)),
+      fu_6m = any(EndOfFUPeriod >= Hb_obsdate + days(180))) %>%
+    ungroup()
+  
+  
+  # Step 3: Add variable if Hb has corresponding Hb within 3m NEED TO ENSURE ALL OBS REMAIN AND ALL COLUMNS REMAIN
+  
+  
+  hb_3m_no_iron_during_study <- hb_no_iron_during_study %>%
+    left_join(hbs_during_study, by = "patid") %>%   # Join on patient ID
+    group_by(patid, Hb_obsdate.x) %>%               # Group by original Hb date
+    summarise(followup_hb_yn = any(Hb_obsdate.y > Hb_obsdate.x + 14 & Hb_obsdate.y <= Hb_obsdate.x + 90), 
+              .groups = "drop") %>%
+    mutate(followup_hb_yn = as.integer(followup_hb_yn))  # Convert TRUE/FALSE to 1/0
+  
+  # merge back
+  hb_no_iron_during_study <- hb_no_iron_during_study %>%
+    left_join(
+      hb_3m_no_iron_during_study %>% select(patid, Hb_obsdate.x, followup_hb_yn), 
+      by = c("patid", "Hb_obsdate" = "Hb_obsdate.x")  
+    )
+
+  
+  # Step 4: Filter for those with at least 3m follow-up (I HAVE REMOVED '& followup_hb_yn == 1')
+  comparator_candidates <- hb_no_iron_during_study %>%
+    filter(fu_3m)
+  
+  # Check cohort matches what has been analysed:
+  
+  oral_iron_3m_analysis <- oral_iron_subgroup %>%
+    filter(fu_3m == 1) %>%
+    select(patid, Oral_Iron_issuedate, Hb_baseline_date, anaemia_baseline)
+  
+  table(oral_iron_3m_analysis$anaemia_baseline) #  Missing (no baseline Hb n = 873)
+  table(is.na(oral_iron_3m_analysis$Hb_baseline_date)) # NA n = 873
+  table(is.na(oral_iron_3m_analysis$Oral_Iron_issuedate)) # oral iron issue date for matching in ALL 6591
+  
+  # Step 4: Generate unique comparators
+  
+  # Create an empty dataframe to store matched pairs
+  matched_comparator <- data.frame()
+  
+  # Create a temporary set of available comparators
+  available_comparators <- comparator_candidates
+  
+  # Loop through each oral iron patient to find the closest unique match
+  for (i in seq_len(nrow(oral_iron_3m_analysis))) {
+    
+    # Select current oral iron patient
+    current_patient <- oral_iron_3m_analysis[i,]
+    
+    # Find the closest Hb test date among available comparators
+    closest_match <- available_comparators %>%
+      ##### NEXT LINE IS ONLY ONE TO CHANGE FOR MATCHING DATE ORAL IRON ISSUE VS HB BASELINE ####
+    mutate(date_diff = abs(difftime(Hb_obsdate, current_patient$Oral_Iron_issuedate, units = "days"))) %>%
+      slice_min(date_diff, n = 1, with_ties = FALSE)  # Select the closest match
+    
+    # If a match is found, add it to matched_comparator and remove from available pool
+    if (nrow(closest_match) > 0) {
+      matched_comparator <- bind_rows(matched_comparator, 
+                                      tibble(
+                                        oral_iron_patid = current_patient$patid,
+                                        matched_patid = closest_match$patid,
+                                        oral_iron_issuedate = current_patient$Oral_Iron_issuedate,
+                                        hb_baseline_date = current_patient$Hb_baseline_date,
+                                        matched_hb_obsdate = closest_match$Hb_obsdate,
+                                        matched_hb_value = closest_match$Hb_value_gdL,
+                                        date_diff = closest_match$date_diff
+                                      ))
+      
+      # Remove the matched comparator to prevent reuse
+      available_comparators <- available_comparators %>%
+        filter(patid != closest_match$patid)
+    }
+  }
+  
+  # Check results
+  matched_comparator %>%
+    summarise(unique_oral_iron = n_distinct(oral_iron_patid), 
+              unique_matched = n_distinct(matched_patid)) 
+  
+  # How many is.na hb_baseline_date (NB oral_iron_issuedate is surrogate for hb baseline)
+  matched_comparator %>%
+    summarise(na_count_hb_baseline = sum(is.na(hb_baseline_date)), #(n = 873 as expected)
+              na_count_iron_issue = sum(is.na(oral_iron_issuedate)), # n = 0
+              na_count_match_hb = sum(is.na(matched_hb_obsdate))) #(n = 0, Hb closest to oral iron issue)
+  
+  # Matched controls: Follow up Hb: after 2 weeks but within 3 months (y/n and time to follow up Hb from baseline Hb)
+  
+  matched_comparator_fu <- matched_comparator %>%
+    select(matched_patid, matched_hb_obsdate, matched_hb_value) %>%
+    rename(patid = matched_patid) %>%
+    left_join(hbs_during_study %>% select(patid, Hb_obsdate, Hb_value_gdL), by = "patid") %>% # merge all Hb measurements per patient again
+    mutate(hb_3m_date_diff = as.numeric(Hb_obsdate - matched_hb_obsdate), # generate datediff between hb date and matched comparator baseline Hb
+           hb_3m_yn = if_else(hb_3m_date_diff > 14 & hb_3m_date_diff <= 90,1,0)) %>% # Add column to help filtering subgroups
+    filter(hb_3m_yn == 1) %>% # now filter for all hb results > 14 days but < 90 days after baseline Hb
+    group_by(patid) %>%
+    arrange(desc(hb_3m_date_diff)) %>% # arrange by datediff and select largest (latest)
+    slice(1) %>%
+    ungroup()    # n = 1668 (no oral iron, matched baseline hb (matched to oral iron issue) in the date at 3m AND with Hb by 3m)
+  
+  matched_comparator_fu <- matched_comparator_fu %>%
+    rename(Hb_3m_date = Hb_obsdate,
+           Hb_3m_value = Hb_value_gdL)
+  
+  # Merge back into matched_comparators to keep record of patids with no 3m Hb
+  
+  matched_comparator_analysis <- matched_comparator %>%
+    select(matched_patid, matched_hb_obsdate, matched_hb_value) %>%
+    left_join(matched_comparator_fu %>% select(patid,Hb_3m_date,Hb_3m_value,hb_3m_yn), by = c('matched_patid' = 'patid')) %>%
+    mutate(hb_3m_yn = replace_na(hb_3m_yn, 0))
+  
+  matched_comparator_analysis <- matched_comparator_analysis %>%
+    rename(patid = matched_patid,
+           Hb_baseline_date = matched_hb_obsdate,
+           Hb_baseline_value = matched_hb_value)
+  
+  # Matched controls: Add baseline ferritin 
+  
+  matched_comparator_ferritin <- matched_comparator %>%
+    select(matched_patid, matched_hb_obsdate, matched_hb_value) %>%
+    rename(patid = matched_patid) %>%
+    left_join(ferritin_during_study %>% select(patid, Ferritin_obsdate, Ferritin_value), by = "patid") %>%
+    mutate(fer_base_hb_date_diff = as.numeric(Ferritin_obsdate - matched_hb_obsdate), # generate datediff between fer date and matched baseline hb
+           fer_baseline_yn = if_else(fer_base_hb_date_diff <= 14 & fer_base_hb_date_diff >= -90,1,0)) %>% # Add column to help filter subgroups
+    filter(fer_baseline_yn ==1) %>% # keep only those with 'baseline' ferritin (within 90d prior or 21d post baseline)
+    group_by(patid) %>%
+    arrange(abs(fer_base_hb_date_diff)) %>% # keep closest to baseline date
+    slice(1) %>%
+    ungroup()
+  
+  matched_comparator_ferritin <- matched_comparator_ferritin %>%
+    rename(fer_baseline_date = Ferritin_obsdate,
+           fer_baseline_value = Ferritin_value)
+  
+  # Merge back into matched_comparators to keep record of patids with no baseline ferritin
+  
+  matched_comparator_analysis <- matched_comparator_analysis %>%
+    left_join(matched_comparator_ferritin %>% select(patid,fer_baseline_date,fer_baseline_value, fer_baseline_yn), by ='patid') %>%
+    mutate(fer_baseline_yn = replace_na(fer_baseline_yn, 0))
+  
+  # Matched controls: Add baseline MCV 
+  
+  matched_comparator_mcv <- matched_comparator %>%
+    select(matched_patid, matched_hb_obsdate, matched_hb_value) %>%
+    rename(patid = matched_patid) %>%
+    left_join(hb_mcv_during_study %>% select(patid, mcv_date, mcv_value), by = "patid") %>%
+    mutate(mcv_base_hb_date_diff = as.numeric(mcv_date - matched_hb_obsdate), # generate datediff between mcv date and matched baseline hb
+           mcv_baseline_yn = if_else(mcv_base_hb_date_diff <= 14 & mcv_base_hb_date_diff >= -90,1,0)) %>% # Add column to help filter subgroups
+    filter(mcv_baseline_yn ==1) %>% # keep only those with 'baseline' mcv (within 90d prior or 21d post hb baseline)
+    group_by(patid) %>%
+    arrange(abs(mcv_base_hb_date_diff)) %>% # keep closest to baseline date
+    slice(1) %>%
+    ungroup()
+  
+  matched_comparator_mcv <- matched_comparator_mcv %>%
+    rename(mcv_baseline_date = mcv_date,
+           mcv_baseline_value = mcv_value)
+  
+  # Merge back into matched_comparators to keep record of patids with no baseline mcv
+  
+  matched_comparator_analysis <- matched_comparator_analysis %>%
+    left_join(matched_comparator_mcv %>% select(patid,mcv_baseline_date,mcv_baseline_value, mcv_baseline_yn), by ='patid') %>%
+    mutate(mcv_baseline_yn = replace_na(mcv_baseline_yn, 0))
+  
+  # Matched controls: Add cirrhosis type
+  
+  matched_comparator_analysis <- matched_comparator_analysis %>%
+    left_join(cirrhosis_type %>% select(patid, type_cirrhosis), by ='patid') 
+  
+  matched_comparator_analysis <- matched_comparator_analysis %>%
+    left_join(cirrhosis_basic %>% select(patid, aetiology_cirrhosis), by ='patid') 
+  
+  # Matched controls: Add cirrhosis severity
+  
+  matched_comparator_analysis <- matched_comparator_analysis %>%
+    left_join(UKELD %>% select(patid, UKELD_risk), by ='patid')
+  
+  
+  # Add columns for baseline anaemia, baseline ferritin group, baseline mcv group, delta Hb and Hb response > 10 y/n
+  
+  # add gender
+  matched_comparator_analysis <- matched_comparator_analysis %>%
+    left_join(demographics %>% select(patid, gender), by = 'patid')
+  
+  # now add columns
+  matched_comparator_analysis <- matched_comparator_analysis %>%
+    mutate(
+      # anaemia baseline
+      anaemia_baseline = case_when(  
+        # Men
+        gender == 'M' & Hb_baseline_value >= 110 & Hb_baseline_value < 130 ~ 'Mild',
+        gender == 'M' & Hb_baseline_value >= 80 & Hb_baseline_value < 110 ~ 'Moderate',      
+        gender == 'M' & Hb_baseline_value < 80 ~ 'Severe',
+        
+        # Females
+        gender == 'F' & Hb_baseline_value >= 110 & Hb_baseline_value < 120 ~ 'Mild',
+        gender == 'F' & Hb_baseline_value >= 80 & Hb_baseline_value < 110 ~ 'Moderate',      
+        gender == 'F' & Hb_baseline_value < 80 ~ 'Severe',
+        
+        # No baseline Hb
+        is.na(Hb_baseline_value) ~ 'Missing',
+        
+        # Default "No Anaemia" if Hb doesn't meet any criteria
+        TRUE ~ "No Anaemia"
+      ),
+      
+      # ferritin baseline group
+        fer_baseline = case_when(
+        fer_baseline_value < 30 ~ "<30",
+        fer_baseline_value >= 30 & fer_baseline_value < 50 ~ "30-49",
+        fer_baseline_value >= 50 & fer_baseline_value < 70 ~ "50-69",
+        fer_baseline_value >= 70 & fer_baseline_value < 100 ~ "70-99",
+        fer_baseline_value >= 100 ~ ">=100",
+        TRUE ~ NA_character_ # Handles missing or unexpected values
+      ),  
+      
+      # mcv baseline group
+      mcv_baseline = case_when(
+        mcv_baseline_value < 80 ~ "<80",
+        mcv_baseline_value >= 80 & mcv_baseline_value <= 95 ~ "80-95",
+        mcv_baseline_value > 95 & mcv_baseline_value < 100 ~ "95-100",
+        mcv_baseline_value >= 100 ~ ">=100",
+        TRUE ~ NA_character_ # Handles missing or unexpected values
+      ),
+
+      
+      # Calculate Hb change over 3 months
+      delta_3m_hb = Hb_3m_value - Hb_baseline_value,
+
+      
+      # Flag for >10 g/L increase in Hb
+      Hb_10 = if_else(!is.na(delta_3m_hb) & delta_3m_hb > 10, 1, 0)
+    )
+  
+  
+  # Also add age at hb baseline and ethnicity
+  matched_comparator_analysis <- matched_comparator_analysis %>%
+    left_join(demographics %>% select(patid, ethnicity, yob), by = 'patid') %>%
+    mutate(year_baseline_hb = year(ymd(Hb_baseline_date)), # Extract the year
+           age_baseline_hb = year_baseline_hb - yob) # Calculate age
+  
+  
+  # SUMMARY TABLES : MATCHED CONTROLS
+  # Subgroup with at least 3m follow up n = 6591
+  # Hb response by anaemia at baseline
+  
+  matched_comparator_analysis <- matched_comparator_analysis %>%
+    mutate(anaemia_baseline = factor(anaemia_baseline, levels = c("No Anaemia", "Mild", "Moderate", "Severe", "Missing")))  
+
+  
+  matched_anaemia_Hb_response_summary_table <- matched_comparator_analysis %>%
+    group_by(anaemia_baseline) %>%
+    summarise(
+      count = n(),
+      Hb_delta_count = sum(hb_3m_yn == 1, na.rm = TRUE),
+      Hb_10_count = sum(Hb_10, na.rm = TRUE),
+      percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1)  
+    ) %>%
+    ungroup() %>%  # Ensure correct summarisation
+    bind_rows(
+      summarise(
+        matched_comparator_analysis,
+        anaemia_baseline = "Total",
+        count = n(),
+        Hb_delta_count = sum(hb_3m_yn == 1, na.rm = TRUE),
+        Hb_10_count = sum(Hb_10, na.rm = TRUE),
+        percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1)  
+      )
+    )
+  
+  # Hb response by mcv at baseline
+  matched_comparator_analysis <- matched_comparator_analysis %>%
+    mutate(mcv_baseline = factor(mcv_baseline, levels = c("<80", "80-95", "95-100", ">=100")))  
+  
+  
+  matched_mcv_Hb_response_summary_table <- matched_comparator_analysis %>%
+    group_by(mcv_baseline) %>%
+    summarise(
+      count = n(),
+      Hb_delta_count = sum(hb_3m_yn == 1, na.rm = TRUE),
+      Hb_10_count = sum(Hb_10, na.rm = TRUE),
+      percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1)  
+    ) %>%
+    ungroup() %>%  # Ensure correct summarisation
+    bind_rows(
+      summarise(
+        matched_comparator_analysis,
+        mcv_baseline = "Total",
+        count = n(),
+        Hb_delta_count = sum(hb_3m_yn == 1, na.rm = TRUE),
+        Hb_10_count = sum(Hb_10, na.rm = TRUE),
+        percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1)  
+      )
+    )
+  
+  # Hb response by ferritin at baseline
+  matched_comparator_analysis <- matched_comparator_analysis %>%
+    mutate(fer_baseline = factor(fer_baseline, levels = c("<30","30-49", "50-69", "70-99", ">=100")))  
+  
+  matched_ferritin_Hb_response_summary_table <- matched_comparator_analysis %>%
+    group_by(fer_baseline) %>%
+    summarise(
+      count = n(),
+      Hb_delta_count = sum(hb_3m_yn == 1, na.rm = TRUE),
+      Hb_10_count = sum(Hb_10, na.rm = TRUE),
+      percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1)  
+    ) %>%
+    ungroup() %>%  # Ensure correct summarisation
+    bind_rows(
+      summarise(
+        matched_comparator_analysis,
+        fer_baseline = "Total",
+        count = n(),
+        Hb_delta_count = sum(hb_3m_yn == 1, na.rm = TRUE),
+        Hb_10_count = sum(Hb_10, na.rm = TRUE),
+        percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1)  
+      )
+    )
+  
+  # Hb response by cirrhosis type
+  matched_comparator_analysis <- matched_comparator_analysis %>%
+    mutate(type_cirrhosis = factor(type_cirrhosis, levels = c("alcohol",'non-alcohol','unknown')))  
+  
+  matched_type_cirrhosis_Hb_response_summary_table <- matched_comparator_analysis %>%
+    group_by(type_cirrhosis) %>%
+    summarise(
+      count = n(),
+      Hb_delta_count = sum(hb_3m_yn == 1, na.rm = TRUE),
+      Hb_10_count = sum(Hb_10, na.rm = TRUE),
+      percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1)  
+    ) %>%
+    ungroup() %>%  # Ensure correct summarisation
+    bind_rows(
+      summarise(
+        matched_comparator_analysis,
+        type_cirrhosis = "Total",
+        count = n(),
+        Hb_delta_count = sum(hb_3m_yn == 1, na.rm = TRUE),
+        Hb_10_count = sum(Hb_10, na.rm = TRUE),
+        percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1)  
+      )
+    )
+  
+  matched_comparator_analysis <- matched_comparator_analysis %>%
+    mutate(aetiology_cirrhosis = factor(aetiology_cirrhosis, levels = c("alcohol",'non-alcohol','unspecified')))  
+  
+  matched_aetiology_cirrhosis_Hb_response_summary_table <- matched_comparator_analysis %>%
+    group_by(aetiology_cirrhosis) %>%
+    summarise(
+      count = n(),
+      Hb_delta_count = sum(hb_3m_yn == 1, na.rm = TRUE),
+      Hb_10_count = sum(Hb_10, na.rm = TRUE),
+      percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1)  
+    ) %>%
+    ungroup() %>%  # Ensure correct summarisation
+    bind_rows(
+      summarise(
+        matched_comparator_analysis,
+        aetiology_cirrhosis = "Total",
+        count = n(),
+        Hb_delta_count = sum(hb_3m_yn == 1, na.rm = TRUE),
+        Hb_10_count = sum(Hb_10, na.rm = TRUE),
+        percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1)  
+      )
+    )
+  
+  # Hb response by cirrhosis UKELD severity
+  matched_comparator_analysis <- matched_comparator_analysis %>%
+    mutate(UKELD_risk = factor(UKELD_risk, levels = c("Low",'High')))  
+  
+  matched_UKELD_Hb_response_summary_table <- matched_comparator_analysis %>%
+    group_by(UKELD_risk) %>%
+    summarise(
+      count = n(),
+      Hb_delta_count = sum(hb_3m_yn == 1, na.rm = TRUE),
+      Hb_10_count = sum(Hb_10, na.rm = TRUE),
+      percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1)  
+    ) %>%
+    ungroup() %>%  # Ensure correct summarisation
+    bind_rows(
+      summarise(
+        matched_comparator_analysis,
+        UKELD_risk = "Total",
+        count = n(),
+        Hb_delta_count = sum(hb_3m_yn == 1, na.rm = TRUE),
+        Hb_10_count = sum(Hb_10, na.rm = TRUE),
+        percentage_delta_Hb_10 = round((Hb_10_count / Hb_delta_count) * 100, 1)  
+      )
+    )
+  
+  print(anaemia_Hb_response_summary_table)
+  print(matched_anaemia_Hb_response_summary_table)
+  
+  print(ferritin_Hb_response_summary_table)
+  print(matched_ferritin_Hb_response_summary_table)
+  
+  print(mcv_response_summary_table)
+  print(matched_mcv_Hb_response_summary_table)
+  
+  print(type_cirrhosis_response_summary_table)
+  print(matched_type_cirrhosis_Hb_response_summary_table)
+  
+  print(aetiology_cirrhosis_response_summary_table)
+  print(matched_aetiology_cirrhosis_Hb_response_summary_table)
+  
+  print(UKELD_Hb_response_summary_table)
+  print(matched_UKELD_Hb_response_summary_table)
+  
+  
+# CONFIDENCE INTERVALS USING NORMAL APPROXIMATION (prop.test)
+  # suitable as sample size large and proportions not close to 0 or 1
+  
+  # ORAL IRON
+  # Calculate confidence intervals for each row in the table
+  # anaemia
+  oral_iron_3m_cis <- anaemia_Hb_response_summary_table %>%
+    filter(anaemia_baseline != "Missing") %>%
+    rowwise() %>%
+    mutate(
+      ci_lower = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[1])*100,
+      ci_upper = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[2])*100
+    )
+  
+  # mcv
+  oral_iron_mcv_3m_cis <- mcv_response_summary_table %>%
+    filter(!is.na(mcv_baseline)) %>%
+    rowwise() %>%
+    mutate(
+      ci_lower = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[1])*100,
+      ci_upper = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[2])*100
+    )
+  
+  # ferritin
+  oral_iron_fer_3m_cis <- ferritin_Hb_response_summary_table %>%
+    filter(!is.na(fer_baseline)) %>%
+    rowwise() %>%
+    mutate(
+      ci_lower = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[1])*100,
+      ci_upper = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[2])*100
+    )
+  
+  # cirrhosis type
+  oral_iron_type_cirrho_3m_cis <- type_cirrhosis_response_summary_table %>%
+    filter(!is.na(type_cirrhosis)) %>%
+    rowwise() %>%
+    mutate(
+      ci_lower = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[1])*100,
+      ci_upper = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[2])*100
+    )
+  
+  oral_iron_aetiology_cirrho_3m_cis <- aetiology_cirrhosis_response_summary_table %>%
+    filter(!is.na(aetiology_cirrhosis)) %>%
+    rowwise() %>%
+    mutate(
+      ci_lower = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[1])*100,
+      ci_upper = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[2])*100
+    )
+  
+  # UKELD
+  oral_iron_UKELD_3m_cis <- UKELD_Hb_response_summary_table %>%
+    filter(!is.na(UKELD_risk)) %>%
+    rowwise() %>%
+    mutate(
+      ci_lower = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[1])*100,
+      ci_upper = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[2])*100
+    )
+  
+  # View the results
+  oral_iron_3m_cis
+  oral_iron_mcv_3m_cis
+  oral_iron_fer_3m_cis
+  oral_iron_type_cirrho_3m_cis
+  oral_iron_aetiology_cirrho_3m_cis  
+  oral_iron_UKELD_3m_cis
+  
+  # MATCHED - NO IRON
+  # Calculate confidence intervals for each row in the table
+  no_iron_3m_cis <- matched_anaemia_Hb_response_summary_table %>%
+    rowwise() %>%
+    mutate(
+      ci_lower = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[1])*100,
+      ci_upper = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[2])*100
+    )
+  
+  # mcv
+  no_iron_mcv_3m_cis <- matched_mcv_Hb_response_summary_table %>%
+    filter(!is.na(mcv_baseline)) %>%
+    rowwise() %>%
+    mutate(
+      ci_lower = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[1])*100,
+      ci_upper = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[2])*100
+    )
+  
+  # ferritin
+  no_iron_fer_3m_cis <- matched_ferritin_Hb_response_summary_table %>%
+    filter(!is.na(fer_baseline)) %>%
+    rowwise() %>%
+    mutate(
+      ci_lower = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[1])*100,
+      ci_upper = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[2])*100
+    )
+  
+  # cirrhosis type
+  no_iron_type_cirrho_3m_cis <- matched_type_cirrhosis_Hb_response_summary_table %>%
+    filter(!is.na(type_cirrhosis)) %>%
+    rowwise() %>%
+    mutate(
+      ci_lower = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[1])*100,
+      ci_upper = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[2])*100
+    )
+  
+  no_iron_aetiology_cirrho_3m_cis <- matched_aetiology_cirrhosis_Hb_response_summary_table %>%
+    filter(!is.na(aetiology_cirrhosis)) %>%
+    rowwise() %>%
+    mutate(
+      ci_lower = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[1])*100,
+      ci_upper = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[2])*100
+    )
+  
+  # UKELD
+  no_iron_UKELD_3m_cis <- matched_UKELD_Hb_response_summary_table %>%
+    filter(!is.na(UKELD_risk)) %>%
+    rowwise() %>%
+    mutate(
+      ci_lower = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[1])*100,
+      ci_upper = (prop.test(Hb_10_count, Hb_delta_count, conf.level = 0.95)$conf.int[2])*100
+    )
+  
+  # View the results
+  no_iron_3m_cis
+  no_iron_mcv_3m_cis
+  no_iron_fer_3m_cis
+  no_iron_type_cirrho_3m_cis
+  no_iron_aetiology_cirrho_3m_cis  
+  no_iron_UKELD_3m_cis
+  
+  
+  
+ # GENERATING BAR CHARTS 
+  
+  library(ggplot2)
+  library(dplyr)
+  library(tidyr)
+  
+  
+
+  # ANAEMIA
+  # Create a combined data frame with oral iron and no iron data
+  anaemia_3m_plot <- bind_rows(
+    mutate(oral_iron_3m_cis, group = "Oral Iron"),
+    mutate(no_iron_3m_cis, group = "No Oral Iron")
+  )
+  
+  # Reorder the anaemia severity groups
+  anaemia_3m_plot <- anaemia_3m_plot %>%
+    mutate(anaemia_baseline = factor(anaemia_baseline, 
+                                     levels = c("No Anaemia", "Mild", "Moderate", "Severe")))
+  
+  # Remove the "NA" row to avoid duplicate bars for the total count
+  anaemia_3m_plot <- anaemia_3m_plot %>% filter(anaemia_baseline != "NA")
+  
+  # Plotting the data with confidence intervals and the specified colors
+  ggplot(anaemia_3m_plot, aes(x = anaemia_baseline, y = percentage_delta_Hb_10, fill = group, group = group)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+    geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), 
+                  position = position_dodge(width = 0.8), width = 0.25) +
+    labs(
+      x = "Anaemia Baseline Severity", 
+      y = "Percentage of Hb Change >= 10g/dL",
+      title = "Hb Change >= 10g/dL within 3 Months: Oral Iron vs No Oral Iron",
+      fill = "Group"
+    ) +
+    scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 90)) +  # Formatting the y-axis as percentages
+    scale_fill_manual(values = c("Oral Iron" = "steelblue", "No Oral Iron" = "firebrick")) +  # Custom colors
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Angle x-axis labels for readability
+  
+  
+  
+  # MCV
+  # Create a combined data frame with oral iron and no iron data
+  mcv_3m_plot <- bind_rows(
+    mutate(oral_iron_mcv_3m_cis, group = "Oral Iron"),
+    mutate(no_iron_mcv_3m_cis, group = "No Oral Iron")
+  )
+  
+  # Reorder the anaemia severity groups
+  mcv_3m_plot <- mcv_3m_plot %>%
+    mutate(mcv_baseline = factor(mcv_baseline, 
+                                     levels = c("<80", "80-95", "95-100", ">=100")))
+  
+  # Remove the "NA" row to avoid duplicate bars for the total count
+  mcv_3m_plot <- mcv_3m_plot %>% filter(!is.na(mcv_baseline))
+  
+  # Plotting the data with confidence intervals and the specified colors
+  ggplot(mcv_3m_plot, aes(x = mcv_baseline, y = percentage_delta_Hb_10, fill = group, group = group)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+    geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), 
+                  position = position_dodge(width = 0.8), width = 0.25) +
+    labs(
+      x = "MCV Baseline Group", 
+      y = "Percentage of Hb Change >= 10g/dL",
+      title = "Hb Change >= 10g/dL within 3 Months: Oral Iron vs No Oral Iron",
+      fill = "Group"
+    ) +
+    scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 90)) +  # Formatting the y-axis as percentages
+    scale_fill_manual(values = c("Oral Iron" = "steelblue", "No Oral Iron" = "firebrick")) +  # Custom colors
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Angle x-axis labels for readability
+  
+  
+  
+  # Ferritin
+  # Create a combined data frame with oral iron and no iron data
+  fer_3m_plot <- bind_rows(
+    mutate(oral_iron_fer_3m_cis, group = "Oral Iron"),
+    mutate(no_iron_fer_3m_cis, group = "No Oral Iron")
+  )
+  
+  # Reorder the anaemia severity groups
+  fer_3m_plot <- fer_3m_plot %>%
+    mutate(fer_baseline = factor(fer_baseline, 
+                                 levels = c("<30", "30-49", "50-69", "70-99", ">=100")))
+  
+  # Remove the "NA" row to avoid duplicate bars for the total count
+  fer_3m_plot <- fer_3m_plot %>% filter(!is.na(fer_baseline))
+  
+  # Plotting the data with confidence intervals and the specified colors
+  ggplot(fer_3m_plot, aes(x = fer_baseline, y = percentage_delta_Hb_10, fill = group, group = group)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+    geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), 
+                  position = position_dodge(width = 0.8), width = 0.25) +
+    labs(
+      x = "Ferritin Baseline", 
+      y = "Percentage of Hb Change >= 10g/dL",
+      title = "Hb Change >= 10g/dL within 3 Months: Oral Iron vs No Oral Iron",
+      fill = "Group"
+    ) +
+    scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 90)) +  # Formatting the y-axis as percentages
+    scale_fill_manual(values = c("Oral Iron" = "steelblue", "No Oral Iron" = "firebrick")) +  # Custom colors
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Angle x-axis labels for readability
+  
+  
+  
+  
+  # Cirrhosis type 
+  # Create a combined data frame with oral iron and no iron data
+  type_cirrho_3m_plot <- bind_rows(
+    mutate(oral_iron_type_cirrho_3m_cis, group = "Oral Iron"),
+    mutate(no_iron_type_cirrho_3m_cis, group = "No Oral Iron")
+  )
+  
+  # Reorder the anaemia severity groups
+  type_cirrho_3m_plot <- type_cirrho_3m_plot %>%
+    mutate(type_cirrhosis = factor(type_cirrhosis, 
+                                 levels = c("alcohol", "non-alcohol", "unknown")))
+  
+  # Remove the "NA" row to avoid duplicate bars for the total count
+  type_cirrho_3m_plot <- type_cirrho_3m_plot %>% filter(!is.na(type_cirrhosis))
+  
+  # Plotting the data with confidence intervals and the specified colors
+  ggplot(type_cirrho_3m_plot, aes(x = type_cirrhosis, y = percentage_delta_Hb_10, fill = group, group = group)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+    geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), 
+                  position = position_dodge(width = 0.8), width = 0.25) +
+    labs(
+      x = "Cirrhosis Type", 
+      y = "Percentage of Hb Change >= 10g/dL",
+      title = "Hb Change >= 10g/dL within 3 Months: Oral Iron vs No Oral Iron",
+      fill = "Group"
+    ) +
+    scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 90)) +  # Formatting the y-axis as percentages
+    scale_fill_manual(values = c("Oral Iron" = "steelblue", "No Oral Iron" = "firebrick")) +  # Custom colors
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Angle x-axis labels for readability
+
+  # aetiology (updated 'cirrhosis type' 08/01/26)
+  # Create a combined data frame with oral iron and no iron data
+  aetiology_cirrho_3m_plot <- bind_rows(
+    mutate(oral_iron_aetiology_cirrho_3m_cis, group = "Oral Iron"),
+    mutate(no_iron_aetiology_cirrho_3m_cis, group = "No Oral Iron")
+  )
+  
+  # Reorder the anaemia severity groups
+  aetiology_cirrho_3m_plot <- aetiology_cirrho_3m_plot %>%
+    mutate(aetiology_cirrhosis = factor(aetiology_cirrhosis, 
+                                   levels = c("alcohol", "non-alcohol", "unspecified")))
+  
+  # Remove the "NA" row to avoid duplicate bars for the total count
+  aetiology_cirrho_3m_plot <- aetiology_cirrho_3m_plot %>% filter(!is.na(aetiology_cirrhosis))
+  
+  # Plotting the data with confidence intervals and the specified colors
+  ggplot(aetiology_cirrho_3m_plot, aes(x = aetiology_cirrhosis, y = percentage_delta_Hb_10, fill = group, group = group)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+    geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), 
+                  position = position_dodge(width = 0.8), width = 0.25) +
+    labs(
+      x = "Cirrhosis aetiology", 
+      y = "Percentage of Hb Change >= 10g/dL",
+      title = "Hb Change >= 10g/dL within 3 Months: Oral Iron vs No Oral Iron",
+      fill = "Group"
+    ) +
+    scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 90)) +  # Formatting the y-axis as percentages
+    scale_fill_manual(values = c("Oral Iron" = "steelblue", "No Oral Iron" = "firebrick")) +  # Custom colors
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Angle x-axis labels for readability
+  
+  
+  
+  
+  # UKELD risk
+  # Create a combined data frame with oral iron and no iron data
+  UKELD_3m_plot <- bind_rows(
+    mutate(oral_iron_UKELD_3m_cis, group = "Oral Iron"),
+    mutate(no_iron_UKELD_3m_cis, group = "No Oral Iron")
+  )
+  
+  # Reorder the severity groups
+  UKELD_3m_plot <- UKELD_3m_plot %>%
+    mutate(UKELD_risk = factor(UKELD_risk, 
+                                   levels = c("Low", "High")))
+  
+  # Remove the "NA" row to avoid duplicate bars for the total count
+  UKELD_3m_plot <- UKELD_3m_plot %>% filter(!is.na(UKELD_risk))
+  
+  # Plotting the data with confidence intervals and the specified colors
+  ggplot(UKELD_3m_plot, aes(x = UKELD_risk, y = percentage_delta_Hb_10, fill = group, group = group)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+    geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), 
+                  position = position_dodge(width = 0.8), width = 0.25) +
+    labs(
+      x = "Cirrhosis Severity", 
+      y = "Percentage of Hb Change >= 10g/dL",
+      title = "Hb Change >= 10g/dL within 3 Months: Oral Iron vs No Oral Iron",
+      fill = "Group"
+    ) +
+    scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 90)) +  # Formatting the y-axis as percentages
+    scale_fill_manual(values = c("Oral Iron" = "steelblue", "No Oral Iron" = "firebrick")) +  # Custom colors
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Angle x-axis labels for readability
+  
+  
+  
+  
+  # Logistic regression of oral iron on hb response first unadjusted
+  # Then adjusted for age, ethnicity 
+  # Then stratified by type of cirrhosis, anaemia at baseline, mcv at baseline, ferritin at baseline, severity
+  # Demonstrate if OR of achieving Hb 10 response with oral iron compared to oral iron differs by strata
+  # Can extract omnibus statistic for whether interaction is significant between each
+  # I.e which groups are most likely to respond/not respond to oral iron
+  # Expecting those with lower mcv and lower ferritin more likely to respond, severity of anaemia or type of cirrhosis does not affect, ?severity of cirrhosis with UKELD
+  # However, can demonstrate still improvement with oral iron at ferritin >30 and MCV >100
+
+  
+  
+    # Assess for Hb and MCV response stratified by ferritin (?does MCV response change according to baseline ferritin ?do we still see an response in those with higher ferritin)
+  
+  # Logistic regression with Hb response as the outcome variable and ferritin as the primary exposure: 
+  # to do logistic regression, use glm() rather than lm() and specify the binomial family
+  #(i) unadjusted 
+  
+  glm_modeli <- glm(
+    Hb_10 ~ fer_baseline, 
+    data= oral_iron_analysis, 
+    family="binomial")
+  summary(glm_modeli)
+  confint(glm_modeli)
+  
+  # Convert logOR to OR
+  exp(glm_modeli$coefficients)
+  
+  # Create vector of CI
+  CIi <- confint(glm_modeli)
+  exp(CIi)
+    
+  #(ii) adjusted for age, ethnicity and sex
+
+  glm_modelii <- glm(
+    Hb_10 ~ fer_baseline + age_iron + ethnicity + gender, 
+    data= oral_iron_analysis, 
+    family="binomial")
+  summary(glm_modelii)
+  confint(glm_modelii)
+  
+  # Convert logOR to OR
+  exp(glm_modelii$coefficients)
+  
+  # Create vector of CI
+  CIii <- confint(glm_modelii)
+  exp(CIii)
+  
+  #(iii) adjusted for age, ethnicity and sex PLUS explore interactions with anaemia and mcv at baseline 
+  
+  glm_modeliii <- glm(
+    Hb_10 ~ fer_baseline + anaemia_baseline + mcv_baseline + age_iron + ethnicity + gender, 
+    data= oral_iron_analysis, 
+    family="binomial")
+  summary(glm_modeliii)
+  confint(glm_modeliii)
+  
+  # Convert logOR to OR
+  exp(glm_modelii$coefficients)
+  
+  # Create vector of CI
+  CIiii <- confint(glm_modeliii)
+  exp(CIiii)
+  
+  #(iv) adjusted for age, ethnicity and sex PLUS explore interactions with anaemia and mcv at baseline 
+  
+  glm_modeliv <- glm(
+    Hb_10 ~ fer_baseline * anaemia_baseline + fer_baseline * mcv_baseline + age_iron + ethnicity + gender, 
+    data= oral_iron_analysis, 
+    family="binomial")
+  summary(glm_modeliv)
+  confint(glm_modeliv)
+  
+  # Convert logOR to OR
+  exp(glm_modeliv$coefficients)
+  
+  # Create vector of CI
+  CIiv <- confint(glm_modeliv)
+  exp(CIiv)
+  
+  # HELP with interpretation of effect modification
+  # DISCUSS re: confounders or effect modifiers anaemia and MCV
+  # FOR DISCUSSION Could we generate a 'control/no oral iron' group for comparison? propensity score matched? To observe Hb trends over same time period without oral iron as intervention? 
+  # Would help address big limitation of other unknown interventions e.g. transfusion/IV iron
+  # Argument for linked data
+  
+  
+  # -----------------------------------------------------------------------------------------------------
+  # RESULTS 8: Cox HR for factors affecting ferritin testing
+  # Time-to-event analysis for first ferritin within 90d of Hb from index Hb
+  
+  # i) STATIC COVARIATES
+  # Exclude those who had ferritin within prev 90d but include all other
+  # time_to_ferritin_data_subgroup (line 897) = time to first ferritin within 90d of hb and NO ferritin within prev 90d
+  # add baseline variables of interest (known at index Hb) - age, ethnicity, sex, ltmcs_2, imd, cause of cirrhosis, severity of cirrhosis
+  
+  time_to_ferritin_data_subgroup <- time_to_ferritin_data_subgroup %>%
+    left_join(final_cirrho %>% select(patid, Age_group, ethnicity, gender, ltmcs_group_2, e2019_imd_5, type_cirrhosis, aetiology_cirrhosis, UKELD_risk), by = 'patid')
+  
+  
+  # Create a new combined variable
+  time_to_ferritin_data_subgroup <- time_to_ferritin_data_subgroup %>%
+    mutate(gender_age_group = interaction(gender, Age_group))
+  
+  # Check no patids lost
+  time_to_ferritin_data_subgroup %>%
+    summarise(n_distinct(patid)) # n = 40,438
+  
+  # Check categorical values are factors
+  time_to_ferritin_data_subgroup <- time_to_ferritin_data_subgroup %>%
+    mutate(across(c(gender_age_group, ethnicity, ltmcs_group_2, type_cirrhosis, aetiology_cirrhosis, UKELD_risk), as.factor))
+  
+  
+  # Relevel factors for relevant reference group
+  time_to_ferritin_data_subgroup <- time_to_ferritin_data_subgroup %>%
+    mutate(ethnicity = relevel(as.factor(ethnicity), ref = "White or White British"),
+           gender_age_group = relevel(as.factor(gender_age_group), ref='M.18-49'),
+           #ltmcs_group = relevel(as.factor(ltmcs_group), ref = '0'),
+           ltmcs_group_2 = relevel(as.factor(ltmcs_group_2), ref = '0'))
+  
+  # Explicitly define factor levels for display order
+  time_to_ferritin_data_subgroup <- time_to_ferritin_data_subgroup %>%
+    mutate(ethnicity = factor(ethnicity, levels = c("White or White British", "Asian or Asian British", "Black, Black British, Black Welsh, Caribbean or Africa", "Mixed or Multiple ethnic groups", "Other","Not recorded")),
+           gender_age_group = factor(gender_age_group, levels = c("M.18-49", "F.18-49", "M.50-64", "F.50-64","M.65-74","F.65-74","M.>=75","F.>=75")),
+           #ltmcs_group = factor(ltmcs_group, levels = c("0", "1", ">=2")),
+           ltmcs_group_2 = factor(ltmcs_group_2, levels = c("0", "1", ">=2")))
+  
+  
+  # Fit Cox Proportional Hazards Model with static covariates
+  cox_model <- coxph(Surv(time_to_ferritin, ferritin_tested) ~ gender_age_group
+                     + ethnicity
+                     + ltmcs_group_2
+                     + e2019_imd_5
+                     #+ type_cirrhosis
+                     + aetiology_cirrhosis
+                     + UKELD_risk,
+                     data = time_to_ferritin_data_subgroup)
+  
+  # Summary of the model
+  summary(cox_model)
+  
+  # Forest plot visualization
+  ggforest(cox_model, data = model.frame(cox_model))
+  
+# TIME DEPENDENT COVARIATE ANALYSIS
+  # Exclude patients who had a ferritin test within 3m (roughly 90d) prior to or on Index Hb (NB 3m prior to index Hb is startoffudate)
+  # remove those with ferritin in 90d prior as may affect testing patterns n = 2,645
+  # remove those with ferritin on same day as Hb value unlikely available to influence n = 8,011 (10,693 - 13 - 2,645)
+  # remove those with Hb on same day as data exit as absence of ferritin unaffected by Hb value n = 13
+  
+  #filter_cox <- time_to_ferritin_data %>%
+    #filter(time_to_ferritin == 0 & ferritin_tested == 0) %>% 
+    #distinct(patid) # n = 13
+  #rm(filter_cox)
+  
+  #filter_cox_same_day_or_prior_test <- time_to_ferritin_data %>%
+  #filter(time_to_ferritin == 0 & ferritin_tested == 1) %>% 
+  #distinct(patid) # n = 10, 680
+  #rm(filter_cox_same_day_or_prior_test)
+  
+  exclude_cox <- time_to_ferritin_data %>% # time to ferritin is for all patients n = 43,083
+    filter(time_to_ferritin == 0) %>% # If event (ferritin test) or censoring (data exit) is on or before index Hb date
+    distinct(patid) # n = 10,693
+  
+  
+  time_to_ferritin_cox_subgroup <- time_to_ferritin_data %>%
+    anti_join(exclude_cox, by = "patid") # Keep only those NOT in fer_prior_or_on_index_90
+  
+  rm(exclude_cox) # Remove df with patients who had ferritin within 90d prior to index Hb
+
+  # Add static covariates
+  time_to_ferritin_cox_subgroup <- time_to_ferritin_cox_subgroup %>%
+    left_join(final_cirrho %>% select(patid, Age_group, ethnicity, gender, e2019_imd_5, type_cirrhosis, aetiology_cirrhosis, ltmcs_group_2, UKELD_risk), by = 'patid')
+  
+  # Create a new combined variable
+  time_to_ferritin_cox_subgroup <- time_to_ferritin_cox_subgroup %>%
+    mutate(gender_age_group = interaction(gender, Age_group))
+  
+  
+  # Anaemia severity as time dependent variable
+  
+  # Create function to define anaemia cutoffs by gender
+  classify_anaemia <- function(hb_value, gender) {
+    case_when(
+      # Men
+      gender == 'M' & hb_value >= 130 ~ 'No Anaemia',
+      gender == 'M' & hb_value >= 110 & hb_value < 130 ~ 'Mild',
+      gender == 'M' & hb_value >= 80 & hb_value < 110 ~ 'Moderate',
+      gender == 'M' & hb_value < 80 ~ 'Severe',
+      
+      # Women
+      gender == 'F' & hb_value >= 120 ~ 'No Anaemia',
+      gender == 'F' & hb_value >= 110 & hb_value < 120 ~ 'Mild',
+      gender == 'F' & hb_value >= 80 & hb_value < 110 ~ 'Moderate',
+      gender == 'F' & hb_value < 80 ~ 'Severe',
+      
+      # Default case: No Hb
+      TRUE ~ 'Hb missing'
+    )
+  }
+  
+  
+  # Step 1: Merge Hb values up to event (ferritin test) or censoring (data exit) 
+  
+  anaemia_changes <- time_to_ferritin_cox_subgroup %>%
+    select(patid, gender) %>%
+    left_join(time_to_ferritin %>% select(patid, Ferritin_obsdate, EndOfFUPeriod), by = 'patid') %>%
+    mutate(EndOfFUPeriod = as.Date(EndOfFUPeriod)) %>%
+    left_join(hbs_during_study %>% select(patid, Hb_obsdate, Hb_value_gdL), by = 'patid') %>%
+    mutate(
+      exclude_hb = (!is.na(Ferritin_obsdate) & Hb_obsdate > Ferritin_obsdate)|(Hb_obsdate >= EndOfFUPeriod)
+    ) %>%
+    mutate(Hb_value_gdL = ifelse(exclude_hb, NA, Hb_value_gdL)) %>% # Set Hb_value_gdL to NA instead of removing rows
+    select(-exclude_hb)  # Remove helper column
+  
+  
+  # Step 2: Classify anaemia group
+  
+  anaemia_changes <- anaemia_changes %>%
+    mutate(anaemia_study = classify_anaemia(Hb_value_gdL, gender)) %>%
+    group_by(patid, anaemia_study) %>%
+    summarise(first_occurrence = min(Hb_obsdate), .groups = "drop")  %>% # Get first occurrence of each severity
+    ungroup()
+  
+  # Step 3: Keep only the most severe category at any given time
+  
+  anaemia_changes <- anaemia_changes %>%
+    arrange(patid, first_occurrence) %>%
+    group_by(patid) %>%
+    mutate(
+      severity_rank = case_when(
+        anaemia_study == "Hb missing" ~ 0,
+        anaemia_study == "No Anaemia" ~ 1,
+        anaemia_study == "Mild" ~ 2,
+        anaemia_study == "Moderate" ~ 3,
+        anaemia_study == "Severe" ~ 4
+      )
+    ) %>%
+    filter(severity_rank == cummax(severity_rank)) %>%  # Keep only most severe categories
+    group_by(patid, first_occurrence) %>%
+    slice(which.max(severity_rank)) %>%  # NEW: Keep only the most severe category per date
+    ungroup() %>%
+    select(patid, first_occurrence, anaemia_study)
+  
+  # Check no patids lost
+  anaemia_changes %>%
+    summarise(n_distinct(patid)) # n = 32,390
+  
+  
+  # Step 4: Match time variables scale: Transform date of change to time (days) from index Hb
+  
+  anaemia_changes <- anaemia_changes %>%
+    left_join(demographics %>% select(patid, Index_FirstHb_date), by = "patid") %>%
+    mutate(time_since_index = as.numeric(difftime(first_occurrence, Index_FirstHb_date, units = "days"))) %>%
+    group_by(patid) %>%
+    filter(
+      time_since_index > 0 |  # Keep all values after index date
+        time_since_index == max(time_since_index[time_since_index <= 0], na.rm = TRUE) # Keep only the closest negative value to 0
+    ) %>%
+    ungroup()
+  
+  # If negative time interval remains change to 0 (as this is the group the patient is in at tstart)
+  
+  anaemia_changes <- anaemia_changes %>%
+    mutate(time_since_index = if_else(time_since_index <0, 0, time_since_index)) 
+  
+  # Check no patids lost
+  anaemia_changes %>%
+    summarise(n_distinct(patid)) # n = 32,390
+  
+  
+  # MCV group as time dependent variable
+  
+  # Create function to define mcv groups 
+  classify_mcv <- function(mcv_value) {
+    case_when(
+      mcv_value < 80 ~ '<80',
+      mcv_value >=80 & mcv_value <=95 ~ '80-95',
+      mcv_value >95 & mcv_value <= 100 ~ '95-100',
+      mcv_value > 100 ~ '>100',
+      
+      # Default "mcv missing" if mcv doesn't meet any criteria
+      TRUE ~ "mcv missing"
+    )
+  }
+  
+  # Step 1: Merge mcv values up to (but not including) event (ferritin test) or censoring (data exit) 
+  
+  mcv_changes <- time_to_ferritin_cox_subgroup %>%
+    select(patid, gender) %>%
+    left_join(time_to_ferritin %>% select(patid, Ferritin_obsdate, EndOfFUPeriod), by = 'patid') %>%
+    mutate(EndOfFUPeriod = as.Date(EndOfFUPeriod)) %>%
+    left_join(hb_mcv_during_study %>% select(patid, mcv_date, mcv_value), by = 'patid') %>%
+    mutate(
+      exclude_mcv = (!is.na(Ferritin_obsdate) & mcv_date >= Ferritin_obsdate)|(mcv_date >= EndOfFUPeriod)
+    ) %>%
+    mutate(mcv_value = ifelse(exclude_mcv, NA, mcv_value)) %>% # Set mcv value to NA instead of removing rows
+    select(-exclude_mcv)  # Remove helper column
+  
+  
+  # Step 2: Classify mcv group
+  
+  mcv_changes <- mcv_changes %>%
+    mutate(mcv_min_group = classify_mcv(mcv_value)) %>%
+    group_by(patid, mcv_min_group) %>%
+    summarise(first_occurrence = min(mcv_date), .groups = "drop")  %>% # Get first occurrence of each severity
+    ungroup()
+  
+  # Step 3: Keep only the lowest category at any given time
+  
+  mcv_changes <- mcv_changes %>%
+    arrange(patid, first_occurrence) %>%
+    group_by(patid) %>%
+    mutate(
+      mcv_rank = case_when(
+        mcv_min_group == "<80" ~ 0,
+        mcv_min_group == "80-95" ~ 1,
+        mcv_min_group == "95-100" ~ 2,
+        mcv_min_group == ">100" ~ 3,
+        mcv_min_group == "mcv missing" ~ 4
+      )
+    ) %>%
+    filter(mcv_rank == cummin(mcv_rank)) %>%  # Remove higher categories occurring after a lower one
+    group_by(patid, first_occurrence) %>%
+    slice(which.min(mcv_rank)) %>%  # NEW: Keep only the lowest category per date
+    ungroup() %>%
+    select(patid, first_occurrence, mcv_min_group)  
+  
+  
+  # Check no patids lost
+  mcv_changes %>%
+    summarise(n_distinct(patid)) # n = 32,390
+  
+  
+  # Step 4: Match time variables scale: Transform date of change to time (days) from index Hb
+  
+  mcv_changes <- mcv_changes %>%
+    left_join(demographics %>% select(patid, Index_FirstHb_date), by = "patid") %>%
+    mutate(first_occurrence = if_else(mcv_min_group == 'mcv missing',Index_FirstHb_date, first_occurrence)) %>%   # Additional: Where mcv is missing, make first occurrence date = index date, will remain in mcv missing group for whole study
+    mutate(time_since_index = as.numeric(difftime(first_occurrence, Index_FirstHb_date, units = "days"))) %>%
+    group_by(patid) %>%
+    filter(
+      time_since_index > 0 |  # Keep all values at or after index date
+        time_since_index == max(time_since_index[time_since_index <= 0], na.rm = TRUE) # Keep only the closest negative value
+    ) %>%
+    ungroup()
+  
+  
+  # If negative time interval remains change to 0 (as this is the group the patient is in at tstart)
+  
+  mcv_changes <- mcv_changes %>%
+    mutate(time_since_index = if_else(time_since_index <0, 0, time_since_index))
+  
+  # SOME PATIDS HAVE UNGROUPED MCV AT TIME 0 - NEED TO PUT MCV MISSING INTO THIS GAP
+  # Identify patients who do not have an mcv group at tstart(time from index 0) due to first mcv measurement after index hb
+  
+  mcv_changes_tstart0_missing <- mcv_changes %>%
+    group_by(patid) %>%
+    arrange(time_since_index) %>%
+    slice(1) %>%
+    filter(time_since_index>0)
+  
+  # Create a dataset for these patients with "mcv missing" from tstart = 0
+  mcv_missing_entries <- mcv_changes_tstart0_missing %>%
+    mutate(time_since_index = 0,  # Set start time to 0
+           mcv_min_group = "mcv missing")  # Assign category
+  
+  # Merge this back into mcv_changes
+  mcv_changes_complete <- bind_rows(mcv_changes, mcv_missing_entries) %>%
+    arrange(patid, time_since_index)  # Ensure proper ordering
+  
+  # Check all patids have mcv_min_group at tstart
+  mcv_changes_tstart0_check <- mcv_changes_complete %>%
+    group_by(patid) %>%
+    arrange(time_since_index) %>%
+    slice(1) %>%
+    filter(time_since_index>0) # n = 0
+  
+  
+  # Return to mcv_changes and remove temporary d.fs
+  mcv_changes <- mcv_changes_complete
+  
+  rm(mcv_changes_complete, mcv_missing_entries, mcv_changes_tstart0_check, mcv_changes_tstart0_missing)
+  
+  # Check no patids lost
+  mcv_changes %>%
+    summarise(n_distinct(patid)) # n = 32, 390
+  
+  
+  
+  # Transform into time interval data
+  
+  
+  # Step 1: Process Anaemia Data
+  
+  # add time_to_ferritin to anaemia_changes
+  anaemia_changes <- anaemia_changes %>%
+    left_join(time_to_ferritin_cox_subgroup %>% select(patid, time_to_ferritin), by = 'patid')
+  
+  # then process time intervals 
+  anaemia_intervals <- anaemia_changes %>%
+    group_by(patid) %>%
+    arrange(time_since_index) %>%
+    mutate(
+      tstart = time_since_index,
+      tstop = lead(time_since_index)  # Next change
+    ) %>%
+    mutate(tstop = ifelse(is.na(tstop), time_to_ferritin, tstop)) %>%  # Set last interval's stop time
+    ungroup()
+  
+  # Step 2: Process mcv data
+  
+  # add time_to_ferritin to mcv_changes
+  mcv_changes <- mcv_changes %>%
+    left_join(time_to_ferritin_cox_subgroup %>% select(patid, time_to_ferritin), by = 'patid')
+  
+  # then process time intervals
+  mcv_intervals <- mcv_changes %>%
+    group_by(patid) %>%
+    arrange(time_since_index) %>%
+    mutate(
+      tstart = time_since_index,
+      tstop = lead(time_since_index)  # Next change
+    ) %>%
+    mutate(tstop = ifelse(is.na(tstop), time_to_ferritin, tstop)) %>%  # Set last interval's stop time
+    ungroup()
+  
+  
+  
+  # Create time-dependent dataset for Anaemia Group
+  
+  
+  # Add tstart to event d.f (time_to_ferritin_cox_subgroup)
+  time_to_ferritin_cox_subgroup_2 <- time_to_ferritin_cox_subgroup %>%
+    mutate(tstart = 0,
+           tstop = time_to_ferritin)
+  
+  
+  # First, merge the event data (time of ferritin test)
+  time_dependent_anaemia_2 <- tmerge(
+    data1 = time_to_ferritin_cox_subgroup_2,  # Baseline event data
+    data2 = time_to_ferritin_cox_subgroup_2,  # Reuse event data
+    id = patid,
+    tstart = tstart,
+    tstop = tstop,
+    event = event(ferritin_tested, time = tstop)  # Explicitly set event time
+  )
+  
+  
+  # Then add the time dependent variable (anaemia)
+  time_dependent_anaemia_2 <- tmerge(
+    data1 = time_dependent_anaemia_2,  # Baseline data with event added
+    data2 = anaemia_intervals,  # Anaemia data with time intervals
+    id = patid,
+    anaemia_study = tdc(anaemia_study, time = tstart)  # Track anaemia at correct time points
+  )
+  
+  
+  # Then add the next time dependent variable (mcv)
+  time_dependent_final_2 <- tmerge(
+    data1 = time_dependent_anaemia_2,  # Data with anaemia already merged
+    data2 = mcv_intervals,  # MCV time intervals
+    id = patid,
+    mcv_min_group = tdc(mcv_min_group, time = tstart)  # Adding time-dependent MCV
+  )
+  
+  
+  # Check no patids lost
+  time_dependent_final_2 %>%
+    summarise(n_distinct(patid)) # n = 32,390
+  
+  # Add additional static covariates
+  #time_dependent_final <- time_dependent_final %>%
+   # left_join(final_cirrho %>% select(patid, type_cirrhosis, fib4_risk), by = 'patid')
+  
+  
+  # Check categorical values are factors
+  time_dependent_final_2 <- time_dependent_final_2 %>%
+    mutate(across(c(gender_age_group, ethnicity, ltmcs_group_2, e2019_imd_5, type_cirrhosis, aetiology_cirrhosis, UKELD_risk), as.factor))
+  
+  
+  # Explicitly define factor levels for display order
+  time_dependent_final_2 <- time_dependent_final_2 %>%
+    mutate(ethnicity = factor(ethnicity, levels = c("White or White British", "Asian or Asian British", "Black, Black British, Black Welsh, Caribbean or Africa", "Mixed or Multiple ethnic groups", "Other","Not recorded")),
+           gender_age_group = factor(gender_age_group, levels = c("M.18-49", "F.18-49", "M.50-64", "F.50-64","M.65-74","F.65-74","M.>=75","F.>=75")),
+           #ltmcs_group = factor(ltmcs_group, levels = c("0", "1", ">=2")),
+           ltmcs_group_2 = factor(ltmcs_group_2, levels = c("0", "1", ">=2")),
+           anaemia_study = factor(anaemia_study, level = c('No Anaemia','Mild','Moderate','Severe')),
+           mcv_min_group = factor(mcv_min_group, level = c('95-100','80-95','<80','>100','mcv missing')),
+           type_cirrhosis = factor(type_cirrhosis, level = c('alcohol','non-alcohol','unknown')),
+           aetiology_cirrhosis = factor(aetiology_cirrhosis, level = c('alcohol','non-alcohol','unspecified')),           
+           UKELD_risk = factor(UKELD_risk, level = c('Low','High','UKELD not scored'))
+    )
+  
+  
+  # Fit Cox Proportional Hazards Model with time-dependent covariates
+  cox_modeliii <- coxph(Surv(tstart, tstop, event) ~ 
+                         gender_age_group +                          
+                         ethnicity + 
+                         e2019_imd_5 +
+                         anaemia_study + 
+                         mcv_min_group + 
+                         #type_cirrhosis +
+                         aetiology_cirrhosis +
+                         UKELD_risk +
+                         #fib4_risk +
+                         ltmcs_group_2, 
+                       data = time_dependent_final_2)
+  
+  # Summary of the model
+  summary(cox_modeliii)
+  
+  
+  # Forest plot visualization
+  ggforest(cox_modeliii, data = model.frame(cox_modeliii))
+  
+# CHECK PROPORTIONAL HAZARDS ASSUMPTION
+  
+  # Test proportional hazards assumption for cox_modeliii
+  ph_test <- cox.zph(cox_modeliii)
+  
+  # View the test results (p-values for each covariate + global test)
+  print(ph_test)
+  
+  # Plot Schoenfeld residuals to visually inspect trends over time
+  plot(ph_test)
+  
+  
+  
+# CUSTOMISED FOREST PLOT ------------------------------------------------------  
+   
+  # VERSION 2 20250716: cox_modeliii
+  # 1. Extract model output with HRs and CIs
+  cox_results_2 <- broom::tidy(cox_modeliii, conf.int = TRUE, exponentiate = TRUE)
+  
+  # 2. Identify factor variables from the model formula
+  model_vars <- all.vars(formula(cox_modeliii))[-1]
+  factor_vars <- model_vars[sapply(time_dependent_final_2[, model_vars], is.factor)]
+  
+  # 3. Generate reference rows manually
+  ref_rows <- lapply(factor_vars, function(var) {
+    ref_level <- levels(time_dependent_final_2[[var]])[1]
+    term_name <- paste0(var, ref_level)
+    
+    tibble(
+      term = term_name,
+      estimate = 1,
+      conf.low = NA_real_,
+      conf.high = NA_real_
+    )
+  }) |> bind_rows()
+  
+  # 4. Combine results with reference rows
+  cox_results_aug_2 <- bind_rows(cox_results_2, ref_rows)
+  
+  # 5. Set term order so each factor's reference is on top
+  ordered_terms <- unlist(lapply(factor_vars, function(var) {
+    lvls <- levels(time_dependent_final_2[[var]])
+    paste0(var, lvls)
+  }))
+  cox_results_aug_2$term <- factor(cox_results_aug_2$term, levels = rev(ordered_terms))
+  
+  # 6. Apply label map
+  label_map <- c(
+    "gender_age_groupM.18-49" = "Male 18–49y (ref)",
+    "gender_age_groupF.18-49" = "Female 18–49y",
+    "gender_age_groupM.50-64" = "Male 50–64y",
+    "gender_age_groupF.50-64" = "Female 50–64y",
+    "gender_age_groupM.65-74" = "Male 65–74y",
+    "gender_age_groupF.65-74" = "Female 65–74y",
+    "gender_age_groupM.>=75" = "Male ≥75y",
+    "gender_age_groupF.>=75" = "Female ≥75y",    
+    "ethnicityWhite or White British" = "White (ref)",
+    "ethnicityAsian or Asian British" = "Asian or Asian British",
+    "ethnicityBlack, Black British, Black Welsh, Caribbean or Africa" = "Black, Black British, Black Welsh, Caribbean or Africa",
+    "ethnicityMixed or Multiple ethnic groups" = "Mixed or Multiple ethnic groups",
+    "ethnicityOther" = "Other Ethnicity",
+    "ethnicityNot recorded" = "Ethnicity not recorded",
+    "e2019_imd_51" = "IMD Q1 (ref)",
+    "e2019_imd_52" = "IMD Q2",
+    "e2019_imd_53" = "IMD Q3",
+    "e2019_imd_54" = "IMD Q4",
+    "e2019_imd_55" = "IMD Q5",
+    "e2019_imd_5missing" = "IMD missing",    
+    "anaemia_studyNo Anaemia" = "No Anaemia (ref)",
+    "anaemia_studyMild" = "Mild anaemia",
+    "anaemia_studyModerate" = "Moderate anaemia",
+    "anaemia_studySevere" = "Severe anaemia",
+    "mcv_min_group95-100" = "MCV 95–100 (ref)",
+    "mcv_min_group80-95" = "MCV 80–95",
+    "mcv_min_group<80" = "MCV <80",
+    "mcv_min_group>100" = "MCV >100",
+    "mcv_min_groupmcv missing" = "MCV missing",
+    #"type_cirrhosisalcohol" = "Alcohol related (ref)",
+    #"type_cirrhosisnon-alcohol" = "Non-alcohol related",
+    #"type_cirrhosisunknown" = "Unknown",
+    "aetiology_cirrhosisalcohol" = "Alcohol (ref)",
+    "aetiology_cirrhosisnon-alcohol" = "Non-alcohol",
+    "aetiology_cirrhosisunspecified" = "Unspecified",
+    "UKELD_riskLow" = "UKELD Low (ref)",
+    "UKELD_riskHigh" = "UKELD High",
+    "UKELD_riskUKELD not scored" = "Unable to score",
+    "ltmcs_group_20" = "No LTCs (ref)",
+    "ltmcs_group_21" = "1",
+    "ltmcs_group_2>=2" = "≥2"
+  )
+  
+  # 7. Add label column
+  cox_results_aug_2$label <- label_map[as.character(cox_results_aug_2$term)]
+  cox_results_aug_2$label <- ifelse(is.na(cox_results_aug_2$label), as.character(cox_results_aug_2$term), cox_results_aug_2$label)
+  
+  # 8. Set label order to match term order
+  cox_results_aug_2$label <- factor(cox_results_aug_2$label, 
+                                  levels = cox_results_aug_2$label[order(cox_results_aug_2$term)])
+  
+  # 9. Plot with improved styling
+  ggplot(cox_results_aug_2, aes(y = label, x = estimate, xmin = conf.low, xmax = conf.high)) +
+    geom_errorbarh(height = 0.2, color = "gray40", na.rm = TRUE) +
+    geom_point(shape = 21, fill = "black", color = "black", size = 2.5, na.rm = TRUE) +
+    geom_vline(xintercept = 1, linetype = "dashed", color = "gray60", linewidth = 0.8) +
+    scale_x_log10() +
+    labs(x = "Hazard Ratio (log scale)", y = NULL, title = "Cox PH Model Forest Plot") +
+    theme_minimal(base_size = 13) +
+    theme(
+      panel.grid.major.y = element_blank(),
+      panel.grid.minor.y = element_blank(),
+      panel.grid.minor.x = element_blank(),
+      axis.text.y = element_text(hjust = 1),
+      axis.text.x = element_text(size = 11),
+      plot.title = element_text(face = "bold"),
+      plot.margin = margin(10, 10, 10, 20)
+    )
+
+    
+#### HB RESPONSE -------------------------------------------------------------------------------------- 
+  
+  # Merge oral iron and no oral iron data
+  oral_iron_analysis_merge <- oral_iron_analysis %>% # filter oral iron group to those with 3m fu
+    filter(fu_3m ==1) %>%
+    rename(age = age_iron) %>%
+    mutate(ynoraliron = 1)
+  
+  matched_comparator_analysis_merge <- matched_comparator_analysis %>%
+    rename(age = age_baseline_hb) %>%
+    mutate(ynoraliron = 0)
+  
+  hb_response_3m_all <- bind_rows(oral_iron_analysis_merge, matched_comparator_analysis_merge) %>%
+    select(patid, gender, ethnicity, age, type_cirrhosis, aetiology_cirrhosis, UKELD_risk, Hb_baseline_value, anaemia_baseline, mcv_baseline_value, mcv_baseline, fer_baseline_value, fer_baseline, Hb_3m_value, mcv_3m_value, delta_3m_hb, delta_3m_mcv, ynoraliron, Hb_10 )
+  
+  
+  # Merge LTMCs and IMD
+  hb_response_3m_all <- hb_response_3m_all %>%
+    left_join(final_cirrho %>% select(patid, #ltmcs_group, 
+                                      e2019_imd_5), by = 'patid') # no missing values for ltmcs
+  
+  # Merge LTMCs_group_2 
+  hb_response_3m_all <- hb_response_3m_all %>%
+    left_join(final_cirrho %>% select(patid, ltmcs_group_2), by = 'patid') # no missing values for ltmcs 
+  
+  # Turn 'missing' imd into NA
+  hb_response_3m_all <- hb_response_3m_all %>%
+    mutate(e2019_imd_5 = na_if(e2019_imd_5, 'missing'))
+  
+  # Turn 'missing' anaemia baseline into NA
+  hb_response_3m_all <- hb_response_3m_all %>%
+    mutate(anaemia_baseline = na_if(anaemia_baseline, 'Missing'))
+  
+  # Turn 'unknown' cirrhosis type into NA
+  hb_response_3m_all <- hb_response_3m_all %>%
+    mutate(type_cirrhosis = na_if(type_cirrhosis, 'unknown'))
+  
+  # Turn 'unspecified' cirrhosis type into NA
+  hb_response_3m_all <- hb_response_3m_all %>%
+    mutate(aetiology_cirrhosis = na_if(aetiology_cirrhosis, 'unspecified'))
+
+  # Turn 'Not recorded' ethnicity into NA
+  hb_response_3m_all <- hb_response_3m_all %>%
+    mutate(ethnicity = na_if(ethnicity, 'Not recorded'))
+  
+  # Turn Hb_10 into NA if no delta_3m_hb
+  hb_response_3m_all <- hb_response_3m_all %>%
+    mutate(
+      Hb_10 = case_when(
+        is.na(delta_3m_hb) ~ NA_real_,
+        delta_3m_hb >= 10 ~ 1,
+        TRUE ~ 0
+      )
+    )
+  
+  ### SUMMARY TABLE YN ORAL IRON
+  
+  # Table one
+  cat_vars <- c('gender', 'ethnicity','e2019_imd_5', 'aetiology_cirrhosis', 'UKELD_risk', 'anaemia_baseline', 'mcv_baseline', 'fer_baseline','ltmcs_group_2', 'Hb_10')
+  cont_vars <- c('age','Hb_baseline_value','mcv_baseline_value')
+  
+  # Table One 1 - all with 3m fu, oral iron y/n strata ------------------------------------------------------------------------
+  tableOne_iron <- tableone::CreateTableOne(vars = c(cat_vars, cont_vars),
+                                       strata = 'ynoraliron',
+                                       includeNA = T,
+                                       data = hb_response_3m_all,
+                                       factorVar = cat_vars,
+                                       addOverall = F,
+                                       test = F
+  )
+  
+  
+  print(tableOne_iron, showAllLevels = TRUE) 
+  
+  
+  # Table 2 - only those with Hb repeats within 3m, oral iron y/n strata
+  
+  hb_response_3m_hb <- hb_response_3m_all %>% 
+    filter(!is.na(Hb_10))
+  
+  tableOne_iron_response <- tableone::CreateTableOne(vars = c(cat_vars, cont_vars),
+                                            strata = 'ynoraliron',
+                                            includeNA = T,
+                                            data = hb_response_3m_hb,
+                                            factorVar = cat_vars,
+                                            addOverall = F,
+                                            test = F
+  )
+  
+  
+  print(tableOne_iron_response, showAllLevels = TRUE) 
+
+  # Export table as word flextable
+  
+  # Convert TableOne object to a data frame
+  tableOne_iron_response_df <- print(tableOne_iron_response, quote = FALSE, noSpaces = TRUE, varLabels = TRUE)
+  
+  # Add row names as a column
+  tableOne_iron_response_df <- cbind(Variable = rownames(tableOne_iron_response_df), tableOne_iron_response_df)
+  rownames(tableOne_iron_response_df) <- NULL  # Remove row names to avoid duplication
+  
+  # Create a flextable
+  tableOne_iron_response_flex <- qflextable(as.data.frame(tableOne_iron_response_df))
+  
+  # Export to Word
+  doc2 <- read_docx() %>%
+    body_add_flextable(tableOne_iron_response_flex)
+  
+  print(doc2, target = "table3_20260109.docx")
+  
+  ### REGRESSION ANALYSIS
+  
+  # Re-level anaemia groups so mild is reference
+  hb_response_3m_hb <- hb_response_3m_hb %>%
+    mutate(anaemia_baseline = relevel(factor(anaemia_baseline), ref = "Mild"))
+  
+  # Re-level ferritin groups so >=100 is reference
+  hb_response_3m_hb <- hb_response_3m_hb %>%
+    mutate(fer_baseline = relevel(factor(fer_baseline), ref = ">=100"))
+  
+  # Make 'White British' reference (most common)
+  hb_response_3m_hb <- hb_response_3m_hb %>%
+    mutate(ethnicity = relevel(factor(ethnicity), ref = "White or White British"))
+
+  # Turn off scientific notation
+  options(scipen = 999)
+  
+  # Define the dataframe and columns to exclude
+  df <- hb_response_3m_hb
+  outcome <- "Hb_10"
+  exclude_cols <- c("patid", "fer_baseline_value", "type_cirrhosis", names(df)[14:17], names(df)[19])  # Excluding specific columns
+  predictors <- setdiff(names(df), exclude_cols)  # Get all remaining columns as predictors
+  
+  # Function to assign significance levels
+  get_significance <- function(p) {
+    if (p < 0.001) return("***")
+    else if (p < 0.01) return("**")
+    else if (p < 0.05) return("*")
+    else if (p < 0.1) return(".")
+    else return("")
+  }
+  
+  # Run unadjusted logistic regression for each predictor
+  results <- lapply(predictors, function(var) {
+    formula <- as.formula(paste(outcome, "~", var))
+    model <- glm(formula, data = df, family = binomial)
+    
+    # Extract coefficient summary
+    coef_summary <- summary(model)$coef
+    conf_int <- confint(model)  # Compute 95% CI
+    
+    # Handle categorical variables (multiple levels)
+    if (nrow(coef_summary) > 1) {
+      p_values <- coef_summary[-1, 4]  # Extract p-values
+      data.frame(
+        Predictor = paste(var, rownames(coef_summary)[-1], sep = "_"),  # Include category levels
+        OR = round(exp(coef_summary[-1, 1]), 3),  # Exponentiate coefficient
+        `CI Lower` = round(exp(conf_int[-1, 1]), 3),  # Lower bound of 95% CI
+        `CI Upper` = round(exp(conf_int[-1, 2]), 3),  # Upper bound of 95% CI
+        `P value` = sprintf("%.3f", p_values),  # Format p-value with 3 decimal places
+        `Significance` = sapply(p_values, get_significance)  # Apply significance levels
+      )
+    } else {
+      p_value <- coef_summary[2, 4]
+      data.frame(
+        Predictor = var,
+        OR = round(exp(coef_summary[2, 1]), 3),
+        `CI Lower` = round(exp(conf_int[2, 1]), 3),
+        `CI Upper` = round(exp(conf_int[2, 2]), 3),
+        `P value` = sprintf("%.3f", p_value),  # Format p-value with 3 decimal places
+        `Significance` = get_significance(p_value)
+      )
+    }
+  })
+  
+  # Convert results to a tidy dataframe
+  unadjusted_glm_df <- bind_rows(results)  # Combine into a single data frame
+  
+  # Print results
+  print(unadjusted_glm_df)
+  
+  #### ADJUSTED MODEL FOR ORAL IRON
+  # ADJ MODEL 1: Fit logistic regression for oral iron on Hb response adjusted for age, gender, ethnicity
+  glm_adj <- glm(Hb_10 ~ ynoraliron + age + gender + ethnicity, data = df, family = binomial)
+  
+  # Extract coefficients and summary
+  summary_glm_adj <- summary(glm_adj)
+  coef_table_adj <- summary_glm_adj$coefficients
+  
+  # Extract confidence intervals (match only existing coefficients)
+  conf_intervals_adj <- confint(glm_adj)
+  common_terms_adj <- intersect(rownames(coef_table_adj), rownames(conf_intervals_adj))
+  
+  # Convert to a data frame ensuring matched rows
+  glm_adj_df <- data.frame(
+    Term = common_terms_adj,
+    OR = round(exp(coef_table_adj[common_terms_adj, 1]), 2),  # Exponentiate coefficients
+    CI.Lower = round(exp(conf_intervals_adj[common_terms_adj, 1]), 2),  # Exponentiate CI lower bound
+    CI.Upper = round(exp(conf_intervals_adj[common_terms_adj, 2]), 2),  # Exponentiate CI upper bound
+    P.Value = round(coef_table_adj[common_terms_adj, 4], 3),  # Round p-values
+    Significance = sapply(coef_table_adj[common_terms_adj, 4], get_significance)  # Add significance notation
+  )
+  
+  # Print results
+  print(glm_adj_df)
+  
+  # ADJ MODEL 2: Fit logistic regression for oral iron on Hb response adjusted for age, gender, ethnicity, hb baseline
+  glm_adj2 <- glm(Hb_10 ~ ynoraliron + age + gender + ethnicity + Hb_baseline_value, data = df, family = binomial)
+  
+  # Extract coefficients and summary
+  summary_glm_adj2 <- summary(glm_adj2)
+  coef_table_adj2 <- summary_glm_adj2$coefficients
+  
+  # Extract confidence intervals (match only existing coefficients)
+  conf_intervals_adj2 <- confint(glm_adj2)
+  common_terms_adj2 <- intersect(rownames(coef_table_adj2), rownames(conf_intervals_adj2))
+  
+  # Convert to a data frame ensuring matched rows
+  glm_adj2_df <- data.frame(
+    Term = common_terms_adj2,
+    OR = round(exp(coef_table_adj2[common_terms_adj2, 1]), 2),  # Exponentiate coefficients
+    CI.Lower = round(exp(conf_intervals_adj2[common_terms_adj2, 1]), 2),  # Exponentiate CI lower bound
+    CI.Upper = round(exp(conf_intervals_adj2[common_terms_adj2, 2]), 2),  # Exponentiate CI upper bound
+    P.Value = round(coef_table_adj2[common_terms_adj2, 4], 3),  # Round p-values
+    Significance = sapply(coef_table_adj2[common_terms_adj2, 4], get_significance)  # Add significance notation
+  )
+  
+  # Print results
+  print(glm_adj2_df)
+  
+  # ADJ MODEL 3: Fit logistic regression for oral iron on Hb response adjusted for age, gender, ethnicity, hb baseline, fer baseline
+  glm_adj3 <- glm(Hb_10 ~ ynoraliron + age + gender + ethnicity + Hb_baseline_value + fer_baseline, data = df, family = binomial)
+  
+  # Extract coefficients and summary
+  summary_glm_adj3 <- summary(glm_adj3)
+  coef_table_adj3 <- summary_glm_adj3$coefficients
+  
+  # Extract confidence intervals (match only existing coefficients)
+  conf_intervals_adj3 <- confint(glm_adj3)
+  common_terms_adj3 <- intersect(rownames(coef_table_adj3), rownames(conf_intervals_adj3))
+  
+  # Convert to a data frame ensuring matched rows
+  glm_adj3_df <- data.frame(
+    Term = common_terms_adj3,
+    OR = round(exp(coef_table_adj3[common_terms_adj3, 1]), 2),  # Exponentiate coefficients
+    CI.Lower = round(exp(conf_intervals_adj3[common_terms_adj3, 1]), 2),  # Exponentiate CI lower bound
+    CI.Upper = round(exp(conf_intervals_adj3[common_terms_adj3, 2]), 2),  # Exponentiate CI upper bound
+    P.Value = round(coef_table_adj3[common_terms_adj3, 4], 3),  # Round p-values
+    Significance = sapply(coef_table_adj3[common_terms_adj3, 4], get_significance)  # Add significance notation
+  )
+  
+  # Print results
+  print(glm_adj3_df)
+  
+  # ADJ MODEL 4: SENSITIVITY Fit logistic regression for oral iron on Hb response adjusted for age, gender, ethnicity, hb baseline, fer baseline and mcv_baseline
+  glm_adj4 <- glm(Hb_10 ~ ynoraliron + age + gender + ethnicity + Hb_baseline_value + fer_baseline + mcv_baseline_value, data = df, family = binomial)
+  
+  # Extract coefficients and summary
+  summary_glm_adj4 <- summary(glm_adj4)
+  coef_table_adj4 <- summary_glm_adj4$coefficients
+  
+  # Extract confidence intervals (match only existing coefficients)
+  conf_intervals_adj4 <- confint(glm_adj4)
+  common_terms_adj4 <- intersect(rownames(coef_table_adj4), rownames(conf_intervals_adj4))
+  
+  # Convert to a data frame ensuring matched rows
+  glm_adj4_df <- data.frame(
+    Term = common_terms_adj4,
+    OR = round(exp(coef_table_adj4[common_terms_adj4, 1]), 2),  # Exponentiate coefficients
+    CI.Lower = round(exp(conf_intervals_adj4[common_terms_adj4, 1]), 2),  # Exponentiate CI lower bound
+    CI.Upper = round(exp(conf_intervals_adj4[common_terms_adj4, 2]), 2),  # Exponentiate CI upper bound
+    P.Value = round(coef_table_adj4[common_terms_adj4, 4], 3),  # Round p-values
+    Significance = sapply(coef_table_adj4[common_terms_adj4, 4], get_significance)  # Add significance notation
+  )
+  
+  # Print results
+  print(glm_adj4_df)
+  
+  # NOW CHECK STRATIFIED LOGISTIC REGRESSION
+  # Whether oral iron has a different effect within each baseline ferritin category.
+  # Whether the odds ratio (OR) changes across groups. 
+  
+  # List of ferritin severity levels (excluding missing)
+ ferritin_levels <- c("<30", "30-49", "50-69", "70-99",">=100")
+  
+  # Run logistic regression separately for each ferritin level
+  stratified_results <- lapply(ferritin_levels, function(level) {
+    subset_df <- df[df$fer_baseline == level, ]
+    model_strat <- glm(Hb_10 ~ ynoraliron + age + ethnicity + gender + Hb_baseline_value, data = subset_df, family = binomial)
+    
+    # Extract results
+    coef_summary_strat <- summary(model_strat)$coef
+    conf_int_strat <- confint(model_strat)
+    
+    data.frame(
+      Ferritin_Level = level,
+      OR = round(exp(coef_summary_strat[2, 1]), 2),
+      `CI Lower` = round(exp(conf_int_strat[2, 1]), 2),
+      `CI Upper` = round(exp(conf_int_strat[2, 2]), 2),
+      `P value` = round(coef_summary_strat[2, 4], 3)
+    )
+  })
+  
+  # Combine into a single dataframe
+  stratified_ferritin_results_df <- do.call(rbind, stratified_results)
+  
+  # Print the results
+  print(stratified_ferritin_results_df)
+  
+  
+  # STRATIFIED LOGISTIC REGRESSION 2
+  # Whether oral iron has a different effect within each baseline ferritin category (adjusted for MCV).
+  # Whether the odds ratio (OR) changes across groups. 
+  
+  # List of ferritin severity levels (excluding missing)
+  ferritin_levels <- c("<30", "30-49", "50-69", "70-99",">=100")
+  
+  # Run logistic regression separately for each ferritin level
+  stratified_results <- lapply(ferritin_levels, function(level) {
+    subset_df <- df[df$fer_baseline == level, ]
+    model_strat <- glm(Hb_10 ~ ynoraliron + age + ethnicity + gender + Hb_baseline_value + mcv_baseline_value, data = subset_df, family = binomial)
+    
+    # Extract results
+    coef_summary_strat <- summary(model_strat)$coef
+    conf_int_strat <- confint(model_strat)
+    
+    data.frame(
+      Ferritin_Level = level,
+      OR = round(exp(coef_summary_strat[2, 1]), 2),
+      `CI Lower` = round(exp(conf_int_strat[2, 1]), 2),
+      `CI Upper` = round(exp(conf_int_strat[2, 2]), 2),
+      `P value` = round(coef_summary_strat[2, 4], 3)
+    )
+  })
+  
+  # Combine into a single dataframe
+  stratified_ferritin_results_df <- do.call(rbind, stratified_results)
+  
+  # Print the results
+  print(stratified_ferritin_results_df)
+  
+  # STRATIFIED LOGISTIC REGRESSION 3
+  # Whether oral iron has a different effect within each baseline mcv category.
+  # Whether the odds ratio (OR) changes across groups. 
+  
+  # List of mcv  levels (excluding missing)
+  mcv_levels <- c("<80", "80-95", "95-100",">=100")
+  
+  # Run logistic regression separately for each mcv level
+  stratified_results <- lapply(mcv_levels, function(level) {
+    subset_df <- df[df$mcv_baseline == level, ]
+    model_strat <- glm(Hb_10 ~ ynoraliron + age + ethnicity + gender + Hb_baseline_value, data = subset_df, family = binomial)
+    
+    # Extract results
+    coef_summary_strat <- summary(model_strat)$coef
+    conf_int_strat <- confint(model_strat)
+    
+    data.frame(
+      MCV_Level = level,
+      OR = round(exp(coef_summary_strat[2, 1]), 2),
+      `CI Lower` = round(exp(conf_int_strat[2, 1]), 2),
+      `CI Upper` = round(exp(conf_int_strat[2, 2]), 2),
+      `P value` = round(coef_summary_strat[2, 4], 3)
+    )
+  })
+  
+  # Combine into a single dataframe
+  stratified_mcv_results_df <- do.call(rbind, stratified_results)
+  
+  # Print the results
+  print(stratified_mcv_results_df)
+  
+  # STRATIFIED LOGISTIC REGRESSION 4
+  # Whether oral iron has a different effect within each baseline mcv category (also adjusted for ferritin).
+  # Whether the odds ratio (OR) changes across groups. 
+  
+  # List of mcv  levels (excluding missing)
+  mcv_levels <- c("<80", "80-95", "95-100",">=100")
+  
+  # Run logistic regression separately for each mcv level
+  stratified_results <- lapply(mcv_levels, function(level) {
+    subset_df <- df[df$mcv_baseline == level, ]
+    model_strat <- glm(Hb_10 ~ ynoraliron + age + ethnicity + gender + Hb_baseline_value + fer_baseline, data = subset_df, family = binomial)
+    
+    # Extract results
+    coef_summary_strat <- summary(model_strat)$coef
+    conf_int_strat <- confint(model_strat)
+    
+    data.frame(
+      MCV_Level = level,
+      OR = round(exp(coef_summary_strat[2, 1]), 2),
+      `CI Lower` = round(exp(conf_int_strat[2, 1]), 2),
+      `CI Upper` = round(exp(conf_int_strat[2, 2]), 2),
+      `P value` = round(coef_summary_strat[2, 4], 3)
+    )
+  })
+  
+  # Combine into a single dataframe
+  stratified_mcv_results_df <- do.call(rbind, stratified_results)
+  
+  # Print the results
+  print(stratified_mcv_results_df)
+  
